@@ -21,7 +21,6 @@ type CreatePostResponse =
       postId: string;
       phone: string;
       managementToken: string;
-      devVerificationCode: string;
     }
   | {
       ok: false;
@@ -77,7 +76,6 @@ export default function PostWizard({ categories }: Props) {
   const [createdPostId, setCreatedPostId] = useState("");
   const [createdPhone, setCreatedPhone] = useState("");
   const [managementToken, setManagementToken] = useState("");
-  const [devCode, setDevCode] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -186,7 +184,6 @@ export default function PostWizard({ categories }: Props) {
       setCreatedPostId(data.postId);
       setCreatedPhone(data.phone);
       setManagementToken(data.managementToken);
-      setDevCode(data.devVerificationCode);
       setStep(6);
     } catch {
       setError("Unable to create post.");
@@ -463,10 +460,6 @@ export default function PostWizard({ categories }: Props) {
           <p className="text-base font-semibold leading-7 text-[#5f6f67]">
             Enter the 6-digit code sent to your phone.
           </p>
-
-          <div className="rounded-2xl border border-[#dbe7df] bg-[#eef8f2] p-4 text-sm font-bold text-[#183027]">
-            Dev code: {devCode}
-          </div>
 
           <input
             value={verificationCode}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getWorkerSession } from "@/lib/worker-auth";
+import { getWorkerVerificationState } from "@/lib/worker-verification";
 import WorkerLogoutButton from "@/components/worker/WorkerLogoutButton";
 
 export const dynamic = "force-dynamic";
@@ -32,11 +33,33 @@ export default async function WorkerDashboardPage() {
       homeZip: true,
       status: true,
       subscriptionActive: true,
+      cardVerifiedAt: true,
+      billingSuspendedAt: true,
       phoneVerifiedAt: true,
       identityVerifiedAt: true,
       ratingAverage: true,
       ratingCount: true,
       completedJobCount: true,
+      reviews: {
+  orderBy: {
+    createdAt: "desc",
+  },
+
+  take: 5,
+
+  select: {
+    id: true,
+    rating: true,
+    comment: true,
+    createdAt: true,
+
+    post: {
+      select: {
+        title: true,
+      },
+    },
+  },
+},
       serviceAreas: {
         select: {
           zip: true,
@@ -52,6 +75,8 @@ export default async function WorkerDashboardPage() {
   if (!worker) {
     redirect("/worker/login");
   }
+
+   const verification = getWorkerVerificationState(worker);
 
   return (
     <main className="min-h-screen px-4 py-4 text-[#17231d] sm:px-6 lg:px-8">
@@ -125,6 +150,36 @@ export default async function WorkerDashboardPage() {
           </div>
         </section>
 
+     {!verification.allowed ? (
+  <section className="rounded-[2rem] border border-amber-200 bg-amber-50 p-5 shadow-sm">
+    <p className="text-sm font-black uppercase tracking-[0.18em] text-amber-700">
+      Action Required
+    </p>
+
+    <h2 className="mt-2 text-2xl font-black text-[#183027]">
+      Verification incomplete
+    </h2>
+
+    <p className="mt-3 text-base font-semibold leading-7 text-[#6b5b2a]">
+      {verification.reason}
+    </p>
+  </section>
+) : (
+  <section className="rounded-[2rem] border border-[#cde7d8] bg-[#eef8f2] p-5 shadow-sm">
+    <p className="text-sm font-black uppercase tracking-[0.18em] text-[#228454]">
+      Verified
+    </p>
+
+    <h2 className="mt-2 text-2xl font-black text-[#183027]">
+      Worker account unlocked
+    </h2>
+
+    <p className="mt-3 text-base font-semibold leading-7 text-[#4f6d5d]">
+      You can now submit offers and contact posters.
+    </p>
+  </section>
+)}
+
         <section className="grid gap-4 sm:grid-cols-3">
           <div className="rounded-[2rem] border border-[#dbe7df] bg-white p-5 shadow-sm">
             <h2 className="text-xl font-black text-[#183027]">
@@ -139,29 +194,45 @@ export default async function WorkerDashboardPage() {
           </div>
 
           <div className="rounded-[2rem] border border-[#dbe7df] bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-black text-[#183027]">
-              2. Membership
-            </h2>
+  <h2 className="text-xl font-black text-[#183027]">
+    2. Billing
+  </h2>
 
-            <p className="mt-2 text-sm font-semibold leading-6 text-[#5f6f67]">
-              {worker.subscriptionActive
-                ? "Membership active."
-                : "$7.99/month membership checkout comes next."}
-            </p>
-          </div>
+  <p className="mt-2 text-sm font-semibold leading-6 text-[#5f6f67]">
+    {worker.cardVerifiedAt
+      ? "Payment method verified."
+      : "Add your payment method before contacting posters."}
+  </p>
+
+  <Link
+    href="/worker/billing"
+    className="mt-4 inline-flex rounded-full bg-[#183027] px-4 py-3 text-sm font-black text-white"
+  >
+    {worker.cardVerifiedAt ? "Manage Billing" : "Add Payment Method"}
+  </Link>
+</div>
 
           <div className="rounded-[2rem] border border-[#dbe7df] bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-black text-[#183027]">
-              3. ID verification
-            </h2>
+  <h2 className="text-xl font-black text-[#183027]">
+    3. ID verification
+  </h2>
 
-            <p className="mt-2 text-sm font-semibold leading-6 text-[#5f6f67]">
-              {worker.identityVerifiedAt
-                ? "Identity verified."
-                : "Stripe Identity integration comes after membership."}
-            </p>
-          </div>
-        </section>
+  <p className="mt-2 text-sm font-semibold leading-6 text-[#5f6f67]">
+    {worker.identityVerifiedAt
+      ? "Identity verified."
+      : "Verify your government ID and selfie before contacting posters."}
+  </p>
+
+  <Link
+    href="/worker/identity"
+    className="mt-4 inline-flex rounded-full bg-[#183027] px-4 py-3 text-sm font-black text-white"
+  >
+    {worker.identityVerifiedAt ? "View Identity" : "Verify Identity"}
+  </Link>
+</div>
+</section>
+
+
 
         <section className="rounded-[2rem] border border-[#dbe7df] bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -186,6 +257,59 @@ export default async function WorkerDashboardPage() {
             </Link>
           </div>
         </section>
+        <section className="rounded-[2rem] border border-[#dbe7df] bg-white p-5 shadow-sm">
+  <div className="flex items-center justify-between">
+    <div>
+      <p className="text-sm font-black uppercase tracking-[0.18em] text-[#228454]">
+        Reputation
+      </p>
+
+      <h2 className="mt-1 text-2xl font-black text-[#183027]">
+        Recent reviews
+      </h2>
+    </div>
+
+    <div className="rounded-2xl bg-[#eef8f2] px-4 py-3 text-sm font-black text-[#183027]">
+      {worker.ratingCount} total review
+      {worker.ratingCount === 1 ? "" : "s"}
+    </div>
+  </div>
+
+  {worker.reviews.length === 0 ? (
+    <p className="mt-4 text-base font-semibold leading-7 text-[#5f6f67]">
+      No reviews yet.
+    </p>
+  ) : (
+    <div className="mt-5 grid gap-4">
+      {worker.reviews.map((review) => (
+        <div
+          key={review.id}
+          className="rounded-3xl border border-[#dbe7df] bg-[#f7fbf8] p-5"
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="rounded-full bg-white px-3 py-2 text-sm font-black text-[#183027]">
+              {review.rating}★
+            </div>
+
+            <div className="rounded-full bg-white px-3 py-2 text-sm font-black text-[#183027]">
+              {review.post.title}
+            </div>
+          </div>
+
+          {review.comment ? (
+            <p className="mt-4 text-base font-semibold leading-7 text-[#5f6f67]">
+              {review.comment}
+            </p>
+          ) : (
+            <p className="mt-4 text-base font-semibold leading-7 text-[#8b9790]">
+              No written review left.
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  )}
+</section>
       </section>
     </main>
   );

@@ -125,9 +125,13 @@ export default async function ManagePostPage({ searchParams }: ManagePostPagePro
             {post.title}
           </h1>
 
-          <p className="mt-3 text-base font-semibold leading-7 text-[#5f6f67]">
-            ZIP {post.zip} • {formatMoney(post.payAmountCents)}
+         <p className="mt-3 text-base font-semibold leading-7 text-[#5f6f67]">
+          ZIP {post.zip} • {formatMoney(post.payAmountCents)}
           </p>
+
+         <p className="mt-4 text-base leading-7 text-[#4f5f57]">
+          {post.description}
+         </p>
 
           <div className="mt-5 rounded-3xl bg-[#f7fbf8] p-5">
             <h2 className="text-xl font-black text-[#183027]">
@@ -175,9 +179,22 @@ export default async function ManagePostPage({ searchParams }: ManagePostPagePro
            />
 
         <section className="rounded-[2rem] border border-[#dbe7df] bg-white p-6 shadow-sm">
-          <h2 className="text-3xl font-black text-[#183027]">
-            Worker offers
-          </h2>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+  <div>
+    <p className="text-sm font-black uppercase tracking-[0.18em] text-[#228454]">
+      Marketplace
+    </p>
+
+    <h2 className="text-3xl font-black text-[#183027]">
+      Worker offers
+    </h2>
+  </div>
+
+  <div className="rounded-2xl bg-[#eef8f2] px-4 py-3 text-sm font-black text-[#183027]">
+    {post.workerInterests.length} offer
+    {post.workerInterests.length === 1 ? "" : "s"}
+  </div>
+</div>
 
           {post.workerInterests.length === 0 ? (
             <p className="mt-3 text-base font-semibold leading-7 text-[#5f6f67]">
@@ -203,13 +220,24 @@ export default async function ManagePostPage({ searchParams }: ManagePostPagePro
                           : ""}
                       </h3>
 
-                      <p className="mt-1 text-sm font-bold text-[#5f6f67]">
+                      <p className="mt-2 text-sm font-bold leading-6 text-[#5f6f67]">
                         @{interest.worker.username} •{" "}
                         {Number(interest.worker.ratingAverage).toFixed(2)} rating •{" "}
                         {interest.worker.completedJobCount} jobs done
                       </p>
 
+                      <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#183027]">
+                    {interest.worker.completedJobCount} completed jobs
+                      </div>
+
+                    <div className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#183027]">
+                        {Number(interest.worker.ratingAverage).toFixed(2)}★ rating
+                          </div>
+                        </div>
+
                       {interest.message ? (
+
                         <p className="mt-3 text-base font-semibold leading-7 text-[#5f6f67]">
                           {interest.message}
                         </p>

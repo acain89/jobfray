@@ -82,10 +82,16 @@ model Worker {
   phone           String       @unique
   homeZip         String
   profilePhotoUrl String?
+  stripeCustomerId        String?
+  stripePaymentMethodId  String?
+  cardBrand               String?
+  cardLast4               String?
+  cardVerifiedAt          DateTime?
+  billingSuspendedAt      DateTime?
+  billingFailureReason    String?
   status          WorkerStatus @default(PENDING_PHONE)
 
   phoneVerifiedAt              DateTime?
-  stripeCustomerId             String?   @unique
   stripeSubscriptionId         String?   @unique
   subscriptionActive           Boolean   @default(false)
   subscriptionCurrentPeriodEnd DateTime?

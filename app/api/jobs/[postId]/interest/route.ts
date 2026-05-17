@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getWorkerSession } from "@/lib/worker-auth";
+import { getWorkerVerificationState } from "@/lib/worker-verification";
 
 export const runtime = "nodejs";
 
@@ -75,14 +76,30 @@ export async function POST(
       select: {
         id: true,
         status: true,
+        phoneVerifiedAt: true,
+        cardVerifiedAt: true,
+        identityVerifiedAt: true,
+        billingSuspendedAt: true,
       },
     });
 
-    if (!worker || worker.status === "DELETED") {
+    if (!worker) {
       return NextResponse.json(
         {
           ok: false,
           error: "Worker account not available.",
+        },
+        { status: 403 },
+      );
+    }
+
+    const verification = getWorkerVerificationState(worker);
+
+    if (!verification.allowed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: verification.reason ?? "Verification required.",
         },
         { status: 403 },
       );

@@ -12,16 +12,22 @@ const completePostSchema = z.object({
   review: z.string().trim().max(500).optional().default(""),
 });
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function POST(
+  request: NextRequest,
+): Promise<NextResponse> {
   try {
     const body: unknown = await request.json();
-    const parsed = completePostSchema.safeParse(body);
+
+    const parsed =
+      completePostSchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json(
         {
           ok: false,
-          error: parsed.error.issues[0]?.message ?? "Invalid request.",
+          error:
+            parsed.error.issues[0]?.message ??
+            "Invalid request.",
         },
         { status: 400 },
       );
@@ -32,19 +38,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const post = await prisma.post.findFirst({
       where: {
         id: input.postId,
-        managementTokenHash: hashToken(input.token),
+        managementTokenHash: hashToken(
+          input.token,
+        ),
       },
       select: {
         id: true,
         status: true,
+
+        reviews: {
+          take: 1,
+          select: {
+            id: true,
+          },
+        },
+
         workerInterests: {
           where: {
             status: "ACCEPTED",
           },
+
           take: 1,
+
           select: {
             id: true,
             workerId: true,
+
             worker: {
               select: {
                 ratingAverage: true,
@@ -71,38 +90,77 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         {
           ok: false,
-          error: "Only matched jobs can be completed.",
+          error:
+            "Only matched jobs can be completed.",
         },
         { status: 400 },
       );
     }
 
-    const acceptedInterest = post.workerInterests[0];
+    if (post.reviews.length > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "This job has already been reviewed.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const acceptedInterest =
+      post.workerInterests[0];
 
     if (!acceptedInterest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "No accepted worker found.",
+          error:
+            "No accepted worker found.",
         },
         { status: 400 },
       );
     }
 
-    const currentRatingAverage = Number(acceptedInterest.worker.ratingAverage);
-    const currentRatingCount = acceptedInterest.worker.ratingCount;
-    const nextRatingCount = currentRatingCount + 1;
+    const currentRatingAverage = Number(
+      acceptedInterest.worker.ratingAverage,
+    );
+
+    const currentRatingCount =
+      acceptedInterest.worker.ratingCount;
+
+    const nextRatingCount =
+      currentRatingCount + 1;
+
     const nextRatingAverage =
-      (currentRatingAverage * currentRatingCount + input.rating) / nextRatingCount;
+      (
+        currentRatingAverage *
+          currentRatingCount +
+        input.rating
+      ) / nextRatingCount;
+
+    const now = new Date();
 
     await prisma.$transaction([
       prisma.post.update({
         where: {
           id: post.id,
         },
+
         data: {
           status: "COMPLETED",
-          completedAt: new Date(),
+          completedAt: now,
+        },
+      }),
+
+      prisma.review.create({
+        data: {
+          postId: post.id,
+          workerId:
+            acceptedInterest.workerId,
+          rating: input.rating,
+          comment:
+            input.review.trim() || null,
         },
       }),
 
@@ -110,9 +168,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         where: {
           id: acceptedInterest.workerId,
         },
+
         data: {
-          ratingAverage: nextRatingAverage,
-          ratingCount: nextRatingCount,
+          ratingAverage:
+            nextRatingAverage,
+          ratingCount:
+            nextRatingCount,
+
           completedJobCount: {
             increment: 1,
           },
@@ -120,20 +182,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }),
     ]);
 
-    console.log(
-      `JobFray review submitted for post ${post.id}: ${input.rating} stars — ${input.review}`,
-    );
-
     return NextResponse.json({
       ok: true,
     });
   } catch (error) {
-    console.error("POST /api/post/manage/complete failed:", error);
+    console.error(
+      "POST /api/post/manage/complete failed:",
+      error,
+    );
 
     return NextResponse.json(
       {
         ok: false,
-        error: "Unable to complete job.",
+        error:
+          "Unable to complete job.",
       },
       { status: 500 },
     );

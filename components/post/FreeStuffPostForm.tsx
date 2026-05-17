@@ -8,7 +8,6 @@ type CreateResponse =
       postId: string;
       phone: string;
       managementToken: string;
-      devVerificationCode: string;
     }
   | {
       ok: false;
@@ -37,7 +36,6 @@ export default function FreeStuffPostForm() {
   const [postId, setPostId] = useState("");
   const [createdPhone, setCreatedPhone] = useState("");
   const [managementToken, setManagementToken] = useState("");
-  const [devCode, setDevCode] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -112,7 +110,6 @@ export default function FreeStuffPostForm() {
       setPostId(data.postId);
       setCreatedPhone(data.phone);
       setManagementToken(data.managementToken);
-      setDevCode(data.devVerificationCode);
       setStep("verify");
     } catch {
       setError("Unable to create listing.");
@@ -259,9 +256,6 @@ export default function FreeStuffPostForm() {
 
       {step === "verify" ? (
         <div className="mt-6 space-y-4">
-          <div className="rounded-2xl border border-[#dbe7df] bg-[#eef8f2] p-4 text-sm font-bold text-[#183027]">
-            Dev code: {devCode}
-          </div>
 
           <input
             value={verificationCode}

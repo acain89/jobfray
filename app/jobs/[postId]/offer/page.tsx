@@ -3,6 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getWorkerSession } from "@/lib/worker-auth";
 import JobOfferForm from "@/components/jobs/JobOfferForm";
+import { getWorkerVerificationState } from "@/lib/worker-verification";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,29 @@ export default async function JobOfferPage({ params }: OfferPageProps) {
   if (!job) {
     notFound();
   }
+
+const worker = await prisma.worker.findUnique({
+  where: {
+    id: session.workerId,
+  },
+  select: {
+    status: true,
+    phoneVerifiedAt: true,
+    cardVerifiedAt: true,
+    identityVerifiedAt: true,
+    billingSuspendedAt: true,
+  },
+});
+
+if (!worker) {
+  redirect("/worker/login");
+}
+
+const verification = getWorkerVerificationState(worker);
+
+if (!verification.allowed) {
+  redirect("/worker/dashboard");
+}
 
   return (
     <main className="min-h-screen px-4 py-4 text-[#17231d] sm:px-6 lg:px-8">

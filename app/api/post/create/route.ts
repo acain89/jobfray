@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { twilioClient, twilioPhoneNumber } from "@/lib/twilio";
 import { createPostSchema } from "@/lib/post-validation";
 import {
   generateSecureToken,
@@ -119,16 +120,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return post;
     });
 
-    console.log(
-      `DEV ONLY — JobFray post verification code for ${input.phone}: ${verificationCode}`,
-    );
+   if (twilioClient && twilioPhoneNumber) {
+  await twilioClient.messages.create({
+    body: `JobFray verification code: ${verificationCode}`,
+    from: twilioPhoneNumber,
+    to: `+${input.phone}`,
+  });
+} else {
+  console.log(
+    `DEV ONLY — JobFray post verification code for ${input.phone}: ${verificationCode}`,
+  );
+}
 
     return NextResponse.json({
       ok: true,
       postId: created.id,
       phone: input.phone,
       managementToken,
-      devVerificationCode: verificationCode,
     });
   } catch (error) {
     console.error("POST /api/post/create failed:", error);
