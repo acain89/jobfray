@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { hashToken } from "@/lib/post-token";
 import ManageInterestButtons from "@/components/post-manage/ManageInterestButtons";
+import ManagePostActions from "@/components/post-manage/ManagePostActions";
 
 export const dynamic = "force-dynamic";
 
@@ -165,6 +166,13 @@ export default async function ManagePostPage({ searchParams }: ManagePostPagePro
             </p>
           </section>
         ) : null}
+
+         <ManagePostActions
+          postId={post.id}
+          token={token}
+          postStatus={post.status}
+          hasAcceptedWorker={Boolean(acceptedInterest)}
+           />
 
         <section className="rounded-[2rem] border border-[#dbe7df] bg-white p-6 shadow-sm">
           <h2 className="text-3xl font-black text-[#183027]">
