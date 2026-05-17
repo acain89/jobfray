@@ -1,0 +1,280 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WorkerStatus {
+  PENDING_PHONE
+  PENDING_SUBSCRIPTION
+  PENDING_IDENTITY
+  PENDING_REVIEW
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+  DELETED
+}
+
+enum PostType {
+  JOB
+  FREE_STUFF
+}
+
+enum PostStatus {
+  DRAFT
+  PENDING_PHONE
+  LIVE
+  MATCHED
+  COMPLETED
+  EXPIRED
+  DELETED
+  FLAGGED
+}
+
+enum NeedBy {
+  ASAP
+  TODAY
+  TOMORROW
+  THIS_WEEK
+  FLEXIBLE
+}
+
+enum InterestStatus {
+  INTERESTED
+  COUNTERED
+  SELECTED
+  DECLINED
+  WITHDRAWN
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+enum ReportReason {
+  NO_SHOW
+  SPAM
+  FAKE_POST
+  HARASSMENT
+  UNSAFE
+  PAYMENT_DISPUTE
+  OTHER
+}
+
+model Worker {
+  id              String       @id @default(cuid())
+  username        String       @unique
+  passwordHash    String
+  firstName       String
+  lastInitial     String?
+  phone           String       @unique
+  homeZip         String
+  profilePhotoUrl String?
+  status          WorkerStatus @default(PENDING_PHONE)
+
+  phoneVerifiedAt              DateTime?
+  stripeCustomerId             String?   @unique
+  stripeSubscriptionId         String?   @unique
+  subscriptionActive           Boolean   @default(false)
+  subscriptionCurrentPeriodEnd DateTime?
+
+  stripeIdentitySessionId   String?   @unique
+  identityVerifiedAt        DateTime?
+  identityExpiresAt         DateTime?
+  identityRetentionDeleteAt DateTime?
+
+  ratingAverage     Decimal @default(0) @db.Decimal(3, 2)
+  ratingCount       Int     @default(0)
+  completedJobCount Int     @default(0)
+  noShowReportCount Int     @default(0)
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deactivatedAt DateTime?
+  deletedAt     DateTime?
+
+  serviceAreas WorkerServiceArea[]
+  interests    JobInterest[]
+  reviews      Review[]
+  reportsFiled Report[]            @relation("ReportsFiledByWorker")
+
+  @@index([status])
+  @@index([homeZip])
+  @@index([subscriptionActive])
+}
+
+model WorkerServiceArea {
+  id          String   @id @default(cuid())
+  workerId    String
+  zip         String
+  radiusMiles Int      @default(10)
+  createdAt   DateTime @default(now())
+
+  worker Worker @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([workerId, zip])
+  @@index([zip])
+}
+
+model PosterContact {
+  id              String    @id @default(cuid())
+  phone           String
+  phoneVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  posts Post[]
+
+  @@index([phone])
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  posts Post[]
+
+  @@index([isActive, sortOrder])
+}
+
+model Post {
+  id     String     @id @default(cuid())
+  type   PostType
+  status PostStatus @default(PENDING_PHONE)
+
+  posterContactId String
+  categoryId      String?
+
+  title          String
+  description    String
+  payAmountCents Int?
+  needBy         NeedBy?
+
+  zip              String
+  city             String?
+  state            String?
+  exactAddress     String?
+  privateLatitude  Decimal? @db.Decimal(10, 7)
+  privateLongitude Decimal? @db.Decimal(10, 7)
+  publicLatitude   Decimal? @db.Decimal(10, 7)
+  publicLongitude  Decimal? @db.Decimal(10, 7)
+
+  posterPhoneUnlocked Boolean   @default(false)
+  selectedWorkerId    String?
+  selectedAt          DateTime?
+
+  managementTokenHash String    @unique
+  phoneVerifiedAt     DateTime?
+  liveAt              DateTime?
+  expiresAt           DateTime?
+  completedAt         DateTime?
+  deletedAt           DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  posterContact PosterContact @relation(fields: [posterContactId], references: [id], onDelete: Cascade)
+  category      Category?     @relation(fields: [categoryId], references: [id])
+  photos        PostPhoto[]
+  interests     JobInterest[]
+  reviews       Review[]
+  reports       Report[]
+
+  @@index([type, status, createdAt])
+  @@index([zip, status, createdAt])
+  @@index([categoryId, status])
+  @@index([expiresAt])
+  @@index([selectedWorkerId])
+}
+
+model PostPhoto {
+  id        String   @id @default(cuid())
+  postId    String
+  url       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId, sortOrder])
+}
+
+model JobInterest {
+  id       String         @id @default(cuid())
+  postId   String
+  workerId String
+  status   InterestStatus @default(INTERESTED)
+
+  counterAmountCents Int?
+  counterMessage     String?   @db.VarChar(200)
+  counterSubmittedAt DateTime?
+
+  selectedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  worker Worker @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, workerId])
+  @@index([workerId, status])
+  @@index([postId, status])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  postId    String
+  workerId  String
+  rating    Int
+  comment   String?  @db.VarChar(500)
+  createdAt DateTime @default(now())
+
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  worker Worker @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, workerId])
+  @@index([workerId])
+}
+
+model Report {
+  id              String       @id @default(cuid())
+  postId          String?
+  filedByWorkerId String?
+  reason          ReportReason
+  status          ReportStatus @default(OPEN)
+  notes           String?      @db.VarChar(1000)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  resolvedAt      DateTime?
+
+  post          Post?   @relation(fields: [postId], references: [id], onDelete: SetNull)
+  filedByWorker Worker? @relation("ReportsFiledByWorker", fields: [filedByWorkerId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([reason])
+}
+
+model SmsVerification {
+  id         String    @id @default(cuid())
+  phone      String
+  codeHash   String
+  purpose    String
+  expiresAt  DateTime
+  verifiedAt DateTime?
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, purpose])
+  @@index([expiresAt])
+}
