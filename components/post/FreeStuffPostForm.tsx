@@ -33,6 +33,7 @@ export default function FreeStuffPostForm() {
   const [exactAddress, setExactAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [photoNames, setPhotoNames] = useState<string[]>([]);
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [postId, setPostId] = useState("");
   const [createdPhone, setCreatedPhone] = useState("");
   const [managementToken, setManagementToken] = useState("");
@@ -41,15 +42,45 @@ export default function FreeStuffPostForm() {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handlePhotoSelection(files: FileList | null): void {
-    if (!files) return;
+  async function handlePhotoSelection(files: FileList | null): Promise<void> {
+  if (!files) return;
 
-    setPhotoNames(
-      Array.from(files)
-        .slice(0, 3)
-        .map((file) => file.name),
-    );
+  const selectedFiles = Array.from(files).slice(0, 3);
+
+  setPhotoNames(selectedFiles.map((file) => file.name));
+
+  const formData = new FormData();
+
+  selectedFiles.forEach((file) => {
+    formData.append("files", file);
+  });
+
+  try {
+    const response = await fetch("/api/uploads/images", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = (await response.json()) as
+      | {
+          ok: true;
+          urls: string[];
+        }
+      | {
+          ok: false;
+          error: string;
+        };
+
+    if (!data.ok) {
+      setError(data.error);
+      return;
+    }
+
+    setPhotoUrls(data.urls);
+  } catch {
+    setError("Unable to upload images.");
   }
+}
 
   async function createListing(): Promise<void> {
     setError("");
@@ -67,7 +98,7 @@ export default function FreeStuffPostForm() {
           description,
           exactAddress,
           phone,
-          photoUrls: [],
+          photoUrls,
         }),
       });
 

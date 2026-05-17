@@ -72,6 +72,7 @@ export default function PostWizard({ categories }: Props) {
   const [exactAddress, setExactAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [photoNames, setPhotoNames] = useState<string[]>([]);
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [verificationCode, setVerificationCode] = useState("");
   const [createdPostId, setCreatedPostId] = useState("");
   const [createdPhone, setCreatedPhone] = useState("");
@@ -112,15 +113,45 @@ export default function PostWizard({ categories }: Props) {
     setStep((current) => Math.max(current - 1, 0));
   }
 
-  function handlePhotoSelection(files: FileList | null): void {
-    if (!files) return;
+  async function handlePhotoSelection(files: FileList | null): Promise<void> {
+  if (!files) return;
 
-    const names = Array.from(files)
-      .slice(0, 3)
-      .map((file) => file.name);
+  const selectedFiles = Array.from(files).slice(0, 3);
 
-    setPhotoNames(names);
+  setPhotoNames(selectedFiles.map((file) => file.name));
+
+  const formData = new FormData();
+
+  selectedFiles.forEach((file) => {
+    formData.append("files", file);
+  });
+
+  try {
+    const response = await fetch("/api/uploads/images", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = (await response.json()) as
+      | {
+          ok: true;
+          urls: string[];
+        }
+      | {
+          ok: false;
+          error: string;
+        };
+
+    if (!data.ok) {
+      setError(data.error);
+      return;
+    }
+
+    setPhotoUrls(data.urls);
+  } catch {
+    setError("Unable to upload images.");
   }
+}
 
   async function createPost(): Promise<void> {
     setError("");
@@ -141,7 +172,7 @@ export default function PostWizard({ categories }: Props) {
           phone,
           needBy,
           payAmountCents: dollarsToCents(payAmount),
-          photoUrls: [],
+          photoUrls,
         }),
       });
 
