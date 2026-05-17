@@ -169,7 +169,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <Link
-              href={`/worker/login?next=${encodeURIComponent(`/jobs/${job.id}`)}`}
+              href={`/jobs/${job.id}/offer`}
               className="rounded-full bg-[#183027] px-5 py-4 text-center text-base font-black text-white"
             >
               I Can Do This

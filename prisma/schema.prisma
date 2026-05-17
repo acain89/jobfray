@@ -41,6 +41,13 @@ enum NeedBy {
   FLEXIBLE
 }
 
+enum WorkerInterestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
 enum InterestStatus {
   INTERESTED
   COUNTERED
@@ -102,6 +109,7 @@ model Worker {
   interests    JobInterest[]
   reviews      Review[]
   reportsFiled Report[]            @relation("ReportsFiledByWorker")
+  jobInterests WorkerInterest[]
 
   @@index([status])
   @@index([homeZip])
@@ -190,6 +198,7 @@ model Post {
   interests     JobInterest[]
   reviews       Review[]
   reports       Report[]
+  workerInterests WorkerInterest[]
 
   @@index([type, status, createdAt])
   @@index([zip, status, createdAt])
@@ -277,4 +286,24 @@ model SmsVerification {
 
   @@index([phone, purpose])
   @@index([expiresAt])
+}
+
+model WorkerInterest {
+  id                 String               @id @default(cuid())
+  postId             String
+  workerId           String
+  status             WorkerInterestStatus @default(PENDING)
+  offeredAmountCents Int?
+  message            String?
+  acceptedAt         DateTime?
+  rejectedAt         DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  worker Worker @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, workerId])
+  @@index([postId, status])
+  @@index([workerId, status])
 }
