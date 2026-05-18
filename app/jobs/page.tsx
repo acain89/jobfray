@@ -1,4 +1,5 @@
 import Link from "next/link";
+
 import { prisma } from "@/lib/prisma";
 import { getNearbyZips } from "@/lib/zip-radius";
 
@@ -11,23 +12,38 @@ type JobsPageProps = {
   }>;
 };
 
-function formatMoney(cents: number | null): string {
-  if (!cents || cents <= 0) return "Pay listed";
+function formatMoney(
+  cents: number | null,
+): string {
+  if (!cents || cents <= 0) {
+    return "Pay listed";
+  }
 
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(cents / 100);
+  return new Intl.NumberFormat(
+    "en-US",
+    {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    },
+  ).format(cents / 100);
 }
 
-function formatNeedBy(value: string | null): string {
-  if (!value) return "Flexible";
+function formatNeedBy(
+  value: string | null,
+): string {
+  if (!value) {
+    return "Flexible";
+  }
 
   return value
     .replaceAll("_", " ")
     .toLowerCase()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    .replace(
+      /\b\w/g,
+      (letter) =>
+        letter.toUpperCase(),
+    );
 }
 
 export default async function JobsPage({
@@ -60,6 +76,7 @@ export default async function JobsPage({
           where: {
             type: "JOB",
             status: "LIVE",
+
             zip: {
               in: nearbyZips,
             },
@@ -90,11 +107,14 @@ export default async function JobsPage({
       : [];
 
   return (
-    <main className="min-h-screen px-4 py-4 text-[#17231d] sm:px-6 lg:px-8">
-      <section className="mx-auto flex max-w-5xl flex-col gap-5">
-        <header className="flex items-center justify-between rounded-[2rem] border border-[#dbe7df] bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#afe1c6] text-lg font-black text-[#183027] shadow-sm">
+    <main className="min-h-screen bg-[#f6faf7] px-4 py-4 text-[#17231d] sm:px-6 lg:px-8">
+      <section className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+        <header className="jf-shell-header">
+          <Link
+            href="/"
+            className="jf-brand-link"
+          >
+            <div className="jf-brand-mark">
               JF
             </div>
 
@@ -109,35 +129,45 @@ export default async function JobsPage({
             </div>
           </Link>
 
-          <div className="flex items-center gap-2">
+          <div className="jf-header-actions">
             <Link
               href="/"
-              className="rounded-full border border-[#c9ddd1] bg-white px-4 py-2 text-sm font-bold text-[#183027] transition hover:bg-[#f7fbf8]"
+              className="jf-header-button"
             >
               Home
             </Link>
 
             <Link
+              href="/post"
+              className="jf-header-button"
+            >
+              Post Job
+            </Link>
+
+            <Link
               href="/worker/login"
-              className="rounded-full border border-[#c9ddd1] bg-[#eef8f2] px-4 py-2 text-sm font-bold text-[#183027] transition hover:bg-[#dff1e6]"
+              className="jf-header-button-dark"
             >
               Worker Login
             </Link>
           </div>
         </header>
 
-        <section className="rounded-[2.25rem] border border-[#dbe7df] bg-white p-6 shadow-sm sm:p-8">
+        <section className="rounded-[2.25rem] border border-[#dbe7df] bg-white p-6 shadow-[0_20px_60px_rgba(24,48,39,0.08)] sm:p-8">
           <div className="inline-flex rounded-full bg-[#eef8f2] px-4 py-2 text-sm font-black text-[#228454]">
             Browse nearby jobs by ZIP code
           </div>
 
-          <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">
+          <h1 className="mt-4 text-4xl font-black tracking-tight text-[#17231d] sm:text-5xl">
             Find work near your ZIP code.
           </h1>
 
           <p className="mt-3 max-w-2xl text-base font-semibold leading-7 text-[#5f6f67]">
-            Browse local jobs, side work, labor gigs, and quick help requests.
-            Worker login is required before contacting posters.
+            Browse local jobs, side work,
+            labor gigs, and quick help
+            requests. Worker login is
+            required before contacting
+            posters.
           </p>
 
           <form
@@ -150,17 +180,25 @@ export default async function JobsPage({
               inputMode="numeric"
               maxLength={5}
               placeholder="Enter ZIP code"
-              className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-black outline-none transition focus:border-[#4f9f75]"
+              className="jf-search-input text-base font-black"
             />
 
             <select
               name="radius"
               defaultValue={radius}
-              className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-black outline-none transition focus:border-[#4f9f75]"
+              className="jf-search-input text-base font-black"
             >
-              <option value="5">5 miles</option>
-              <option value="10">10 miles</option>
-              <option value="20">20 miles</option>
+              <option value="5">
+                5 miles
+              </option>
+
+              <option value="10">
+                10 miles
+              </option>
+
+              <option value="20">
+                20 miles
+              </option>
             </select>
 
             <button
@@ -172,40 +210,48 @@ export default async function JobsPage({
           </form>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <span className="rounded-full bg-[#eef8f2] px-3 py-2 text-xs font-black text-[#183027]">
+            <span className="jf-soft-pill">
               ZIP radius search
             </span>
 
-            <span className="rounded-full bg-[#eef8f2] px-3 py-2 text-xs font-black text-[#183027]">
+            <span className="jf-soft-pill">
               Public listings only
             </span>
 
-            <span className="rounded-full bg-[#eef8f2] px-3 py-2 text-xs font-black text-[#183027]">
+            <span className="jf-soft-pill">
               No poster fees
+            </span>
+
+            <span className="jf-soft-pill">
+              Local workers
             </span>
           </div>
         </section>
 
         {zip.length !== 5 ? (
-          <section className="rounded-[2rem] border border-[#dbe7df] bg-white p-6 text-center shadow-sm">
+          <section className="rounded-[2rem] border border-[#dbe7df] bg-white p-6 text-center shadow-[0_20px_60px_rgba(24,48,39,0.08)]">
             <h2 className="text-2xl font-black">
               Enter a ZIP code to browse jobs.
             </h2>
 
             <p className="mt-2 text-base font-semibold text-[#5f6f67]">
-              Nearby listings will appear here once a valid ZIP code is entered.
+              Nearby listings will appear
+              here once a valid ZIP code is
+              entered.
             </p>
           </section>
         ) : null}
 
-        {zip.length === 5 && jobs.length === 0 ? (
-          <section className="rounded-[2rem] border border-[#dbe7df] bg-white p-6 text-center shadow-sm">
+        {zip.length === 5 &&
+        jobs.length === 0 ? (
+          <section className="rounded-[2rem] border border-[#dbe7df] bg-white p-6 text-center shadow-[0_20px_60px_rgba(24,48,39,0.08)]">
             <h2 className="text-2xl font-black">
               No live jobs in {zip} yet.
             </h2>
 
             <p className="mt-2 text-base font-semibold text-[#5f6f67]">
-              Try expanding your radius or check nearby ZIP codes.
+              Try expanding your radius or
+              check nearby ZIP codes.
             </p>
           </section>
         ) : null}
@@ -216,12 +262,13 @@ export default async function JobsPage({
               <Link
                 key={job.id}
                 href={`/jobs/${job.id}`}
-                className="rounded-[2rem] border border-[#dbe7df] bg-white p-5 shadow-sm transition hover:bg-[#f7fbf8]"
+                className="rounded-[2rem] border border-[#dbe7df] bg-white p-5 shadow-[0_20px_60px_rgba(24,48,39,0.06)] transition hover:-translate-y-[1px] hover:bg-[#f7fbf8]"
               >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <p className="text-sm font-black uppercase tracking-[0.18em] text-[#228454]">
-                      {job.category?.name ?? "Local Job"}
+                      {job.category?.name ??
+                        "Local Job"}
                     </p>
 
                     <h2 className="mt-1 text-2xl font-black text-[#183027]">
@@ -235,21 +282,25 @@ export default async function JobsPage({
 
                   <div className="shrink-0 rounded-2xl bg-[#eef8f2] px-5 py-4 text-left sm:text-right">
                     <p className="text-2xl font-black text-[#183027]">
-                      {formatMoney(job.payAmountCents)}
+                      {formatMoney(
+                        job.payAmountCents,
+                      )}
                     </p>
 
                     <p className="mt-1 text-sm font-bold text-[#5f6f67]">
-                      {formatNeedBy(job.needBy)}
+                      {formatNeedBy(
+                        job.needBy,
+                      )}
                     </p>
                   </div>
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <span className="rounded-full bg-[#eef8f2] px-3 py-2 text-xs font-black text-[#183027]">
+                  <span className="jf-soft-pill">
                     ZIP {job.zip}
                   </span>
 
-                  <span className="rounded-full bg-[#eef8f2] px-3 py-2 text-xs font-black text-[#183027]">
+                  <span className="jf-soft-pill">
                     Public details only
                   </span>
                 </div>

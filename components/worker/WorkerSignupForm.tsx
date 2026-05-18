@@ -366,3 +366,5 @@ export default function WorkerSignupForm({
         </Link>
       </div>
     </form>
+  );
+}

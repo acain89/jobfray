@@ -125,13 +125,20 @@ if (geocoded) {
     fuzzy.longitude;
 }
 
-    if (
+     if (
       input.photoUrls.length > 3
     ) {
       return NextResponse.json(
         {
           ok: false,
           error:
+            "Maximum 3 photos allowed.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
 
     const created = await prisma.$transaction(async (tx) => {
       const existingContact = await tx.posterContact.findFirst({

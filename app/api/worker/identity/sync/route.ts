@@ -10,7 +10,9 @@ import {
 
 export const runtime = "nodejs";
 
-export async function POST(): Promise<NextResponse> {
+export async function POST(
+  request: Request,
+): Promise<NextResponse> {
   try {
     const session = await getWorkerSession();
 
@@ -24,7 +26,7 @@ export async function POST(): Promise<NextResponse> {
       );
     }
 
-    const ip = getRequestIp();
+    const ip = getRequestIp(request);
 
     const rateLimit = enforceRateLimit({
       key: `worker-identity-sync:${ip}:${session.workerId}`,

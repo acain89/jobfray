@@ -13,7 +13,22 @@ type Props = {
   categories: Category[];
 };
 
-type NeedBy = "ASAP" | "TODAY" | "TOMORROW" | "THIS_WEEK" | "FLEXIBLE";
+type NeedBy =
+  | "ASAP"
+  | "TODAY"
+  | "TOMORROW"
+  | "THIS_WEEK"
+  | "FLEXIBLE";
+
+type UploadResponse =
+  | {
+      ok: true;
+      urls: string[];
+    }
+  | {
+      ok: false;
+      error: string;
+    };
 
 type CreatePostResponse =
   | {
@@ -37,7 +52,10 @@ type VerifyPostResponse =
       error: string;
     };
 
-const needByOptions: { value: NeedBy; label: string }[] = [
+const needByOptions: {
+  value: NeedBy;
+  label: string;
+}[] = [
   { value: "ASAP", label: "ASAP" },
   { value: "TODAY", label: "Today" },
   { value: "TOMORROW", label: "Tomorrow" },
@@ -57,10 +75,26 @@ function dollarsToCents(value: string): number {
 }
 
 function formatPhone(phone: string): string {
-  return phone.replace(/\D/g, "");
+  return phone.replace(/\D/g, "").slice(0, 10);
 }
 
-export default function PostWizard({ categories }: Props) {
+function formatPayInput(value: string): string {
+  const cleaned = value.replace(/[^0-9.]/g, "");
+  const parts = cleaned.split(".");
+
+  if (parts.length <= 1) {
+    return cleaned.slice(0, 6);
+  }
+
+  return `${parts[0].slice(0, 6)}.${parts
+    .slice(1)
+    .join("")
+    .slice(0, 2)}`;
+}
+
+export default function PostWizard({
+  categories,
+}: Props): React.ReactElement {
   const [step, setStep] = useState(0);
   const [zip, setZip] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -78,22 +112,64 @@ export default function PostWizard({ categories }: Props) {
   const [managementToken, setManagementToken] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
-  const selectedCategory = useMemo(
-    () => categories.find((category) => category.id === categoryId),
-    [categories, categoryId],
-  );
+  const selectedCategory = useMemo(() => {
+    return categories.find((category) => category.id === categoryId);
+  }, [categories, categoryId]);
+
+  const cleanedPhone = useMemo(() => {
+    return formatPhone(phone);
+  }, [phone]);
 
   const canContinue = useMemo(() => {
-    if (step === 0) return /^\d{5}$/.test(zip);
-    if (step === 1) return categoryId.length > 0;
-    if (step === 2) return title.trim().length >= 6 && description.trim().length >= 20;
-    if (step === 3) return needBy.length > 0 && dollarsToCents(payAmount) >= 100;
-    if (step === 4) {
-      return exactAddress.trim().length >= 5 && formatPhone(phone).length >= 10;
+    if (step === 0) {
+      return /^\d{5}$/.test(zip);
     }
+
+    if (step === 1) {
+      return categoryId.length > 0;
+    }
+
+    if (step === 2) {
+      return (
+        title.trim().length >= 6 &&
+        description.trim().length >= 20
+      );
+    }
+
+    if (step === 3) {
+      return (
+        needBy.length > 0 &&
+        dollarsToCents(payAmount) >= 100
+      );
+    }
+
+    if (step === 4) {
+      return (
+        exactAddress.trim().length >= 5 &&
+        cleanedPhone.length === 10
+      );
+    }
+
+    if (step === 5) {
+      return !isUploading;
+    }
+
     return true;
-  }, [categoryId, description, exactAddress, needBy, payAmount, phone, step, title, zip]);
+  }, [
+    categoryId,
+    cleanedPhone,
+    description,
+    exactAddress,
+    isUploading,
+    needBy,
+    payAmount,
+    phone,
+    step,
+    title,
+    zip,
+  ]);
 
   function nextStep(): void {
     setError("");
@@ -111,47 +187,55 @@ export default function PostWizard({ categories }: Props) {
     setStep((current) => Math.max(current - 1, 0));
   }
 
-  async function handlePhotoSelection(files: FileList | null): Promise<void> {
-  if (!files) return;
+  async function handlePhotoSelection(
+    files: FileList | null,
+  ): Promise<void> {
+    setError("");
 
-  const selectedFiles = Array.from(files).slice(0, 3);
-
-  setPhotoNames(selectedFiles.map((file) => file.name));
-
-  const formData = new FormData();
-
-  selectedFiles.forEach((file) => {
-    formData.append("files", file);
-  });
-
-  try {
-    const response = await fetch("/api/uploads/images", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = (await response.json()) as
-      | {
-          ok: true;
-          urls: string[];
-        }
-      | {
-          ok: false;
-          error: string;
-        };
-
-    if (!data.ok) {
-      setError(data.error);
+    if (!files || files.length === 0) {
       return;
     }
 
-    setPhotoUrls(data.urls);
-  } catch {
-    setError("Unable to upload images.");
+    const selectedFiles = Array.from(files).slice(0, 3);
+
+    setPhotoNames(selectedFiles.map((file) => file.name));
+    setPhotoUrls([]);
+    setIsUploading(true);
+
+    const formData = new FormData();
+
+    selectedFiles.forEach((file) => {
+      formData.append("files", file);
+    });
+
+    try {
+      const response = await fetch("/api/uploads/images", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = (await response.json()) as UploadResponse;
+
+      if (!response.ok || !data.ok) {
+        setError(data.ok ? "Unable to upload images." : data.error);
+        setPhotoNames([]);
+        return;
+      }
+
+      setPhotoUrls(data.urls);
+    } catch {
+      setError("Unable to upload images.");
+      setPhotoNames([]);
+    } finally {
+      setIsUploading(false);
+    }
   }
-}
 
   async function createPost(): Promise<void> {
+    if (isSubmitting || isUploading) {
+      return;
+    }
+
     setError("");
     setIsSubmitting(true);
 
@@ -164,10 +248,10 @@ export default function PostWizard({ categories }: Props) {
         body: JSON.stringify({
           zip,
           categoryId,
-          title,
-          description,
-          exactAddress,
-          phone,
+          title: title.trim(),
+          description: description.trim(),
+          exactAddress: exactAddress.trim(),
+          phone: cleanedPhone,
           needBy,
           payAmountCents: dollarsToCents(payAmount),
           photoUrls,
@@ -176,8 +260,8 @@ export default function PostWizard({ categories }: Props) {
 
       const data = (await response.json()) as CreatePostResponse;
 
-      if (!data.ok) {
-        setError(data.error);
+      if (!response.ok || !data.ok) {
+        setError(data.ok ? "Unable to create post." : data.error);
         return;
       }
 
@@ -193,6 +277,10 @@ export default function PostWizard({ categories }: Props) {
   }
 
   async function verifyPost(): Promise<void> {
+    if (isSubmitting) {
+      return;
+    }
+
     setError("");
     setIsSubmitting(true);
 
@@ -211,8 +299,8 @@ export default function PostWizard({ categories }: Props) {
 
       const data = (await response.json()) as VerifyPostResponse;
 
-      if (!data.ok) {
-        setError(data.error);
+      if (!response.ok || !data.ok) {
+        setError(data.ok ? "Unable to verify post." : data.error);
         return;
       }
 
@@ -230,7 +318,7 @@ export default function PostWizard({ categories }: Props) {
   }
 
   return (
-    <section className="rounded-[2.25rem] border border-[#dbe7df] bg-white p-5 shadow-sm sm:p-7">
+    <section className="rounded-[2.25rem] border border-[#dbe7df] bg-white p-5 shadow-[0_20px_60px_rgba(24,48,39,0.08)] sm:p-7">
       <div className="mb-6">
         <p className="text-sm font-black uppercase tracking-[0.18em] text-[#228454]">
           Post a Job
@@ -241,14 +329,17 @@ export default function PostWizard({ categories }: Props) {
         </h1>
 
         <p className="mt-3 text-base font-semibold leading-7 text-[#5f6f67]">
-          Free to post. Your phone and exact address stay private until you choose a worker.
+          Free to post. Your phone and exact address stay private until
+          you choose a worker.
         </p>
       </div>
 
       <div className="mb-6 h-3 overflow-hidden rounded-full bg-[#eef8f2]">
         <div
           className="h-full rounded-full bg-[#afe1c6] transition-all"
-          style={{ width: `${((step + 1) / 7) * 100}%` }}
+          style={{
+            width: `${((step + 1) / 7) * 100}%`,
+          }}
         />
       </div>
 
@@ -260,25 +351,34 @@ export default function PostWizard({ categories }: Props) {
 
       {step === 0 ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">Where is the job?</h2>
+          <h2 className="text-2xl font-black">
+            Where is the job?
+          </h2>
 
           <input
             value={zip}
-            onChange={(event) => setZip(event.target.value.replace(/\D/g, "").slice(0, 5))}
+            onChange={(event) =>
+              setZip(
+                event.target.value.replace(/\D/g, "").slice(0, 5),
+              )
+            }
             inputMode="numeric"
             placeholder="ZIP code"
-            className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-xl font-black outline-none focus:border-[#4f9f75]"
+            className="jf-search-input text-xl font-black"
           />
 
           <p className="text-sm font-semibold leading-6 text-[#5f6f67]">
-            Workers will browse by ZIP and radius. Your exact address is not public.
+            Workers browse by ZIP and radius. Your exact address is not
+            public.
           </p>
         </div>
       ) : null}
 
       {step === 1 ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">Choose a category</h2>
+          <h2 className="text-2xl font-black">
+            Choose a category
+          </h2>
 
           <div className="grid gap-3 sm:grid-cols-2">
             {categories.map((category) => (
@@ -309,28 +409,40 @@ export default function PostWizard({ categories }: Props) {
 
       {step === 2 ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">Describe the job</h2>
+          <h2 className="text-2xl font-black">
+            Describe the job
+          </h2>
 
           <input
             value={title}
-            onChange={(event) => setTitle(event.target.value.slice(0, 80))}
+            onChange={(event) =>
+              setTitle(event.target.value.slice(0, 80))
+            }
             placeholder="Example: Need lawn mowed"
-            className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-bold outline-none focus:border-[#4f9f75]"
+            className="jf-search-input text-base font-bold"
           />
 
           <textarea
             value={description}
-            onChange={(event) => setDescription(event.target.value.slice(0, 1000))}
+            onChange={(event) =>
+              setDescription(event.target.value.slice(0, 1000))
+            }
             placeholder="Add the details workers need to know..."
             rows={6}
             className="w-full resize-none rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-semibold leading-7 outline-none focus:border-[#4f9f75]"
           />
+
+          <p className="text-sm font-semibold leading-6 text-[#5f6f67]">
+            Clear details help workers price the job accurately.
+          </p>
         </div>
       ) : null}
 
       {step === 3 ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">Timing and pay</h2>
+          <h2 className="text-2xl font-black">
+            Timing and pay
+          </h2>
 
           <div className="grid gap-3 sm:grid-cols-2">
             {needByOptions.map((option) => (
@@ -350,35 +462,41 @@ export default function PostWizard({ categories }: Props) {
           </div>
 
           <div className="space-y-2">
-  <label className="block text-sm font-black text-[#183027]">
-    How much do you want to pay for this job?
-  </label>
+            <label className="block text-sm font-black text-[#183027]">
+              How much do you want to pay for this job?
+            </label>
 
-  <input
-    value={payAmount}
-    onChange={(event) =>
-      setPayAmount(
-        event.target.value.replace(/[^0-9.]/g, ""),
-      )
-    }
-    inputMode="decimal"
-    placeholder="Example: 75"
-    className="jf-search-input text-lg font-black"
-  />
+            <input
+              value={payAmount}
+              onChange={(event) =>
+                setPayAmount(formatPayInput(event.target.value))
+              }
+              inputMode="decimal"
+              placeholder="Example: 75"
+              className="jf-search-input text-lg font-black"
+            />
 
-  <p className="
+            <p className="text-sm font-semibold leading-6 text-[#5f6f67]">
+              Workers can accept your amount or submit a different offer.
+            </p>
+          </div>
         </div>
       ) : null}
 
       {step === 4 ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">Private contact details</h2>
+          <h2 className="text-2xl font-black">
+            Private contact details
+          </h2>
 
           <input
             value={exactAddress}
-            onChange={(event) => setExactAddress(event.target.value.slice(0, 200))}
+            onChange={(event) =>
+              setExactAddress(event.target.value.slice(0, 200))
+            }
             placeholder="Exact address"
-            className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-bold outline-none focus:border-[#4f9f75]"
+            autoComplete="street-address"
+            className="jf-search-input text-base font-bold"
           />
 
           <input
@@ -386,59 +504,103 @@ export default function PostWizard({ categories }: Props) {
             onChange={(event) => setPhone(event.target.value)}
             inputMode="tel"
             placeholder="Phone number"
-            className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-bold outline-none focus:border-[#4f9f75]"
+            autoComplete="tel"
+            className="jf-search-input text-base font-bold"
           />
 
           <p className="text-sm font-semibold leading-6 text-[#5f6f67]">
-            JobFray uses this to verify the post. Workers do not see it unless you connect with them.
+            JobFray uses your phone to verify the post. Workers do not
+            see your phone or exact address unless you connect with them.
           </p>
         </div>
       ) : null}
 
       {step === 5 ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">Add photos</h2>
+          <h2 className="text-2xl font-black">
+            Add photos
+          </h2>
 
-          <label className="block cursor-pointer rounded-3xl border border-dashed border-[#c9ddd1] bg-[#f7fbf8] p-6 text-center">
+          <label className="block cursor-pointer rounded-3xl border border-dashed border-[#c9ddd1] bg-[#f7fbf8] p-6 text-center transition hover:bg-[#eef8f2]">
             <span className="block text-lg font-black text-[#183027]">
-              Choose up to 3 photos
+              Choose or take up to 3 photos
             </span>
 
             <span className="mt-2 block text-sm font-semibold text-[#5f6f67]">
-              Upload storage comes next. For now this confirms the posting flow.
+              Photos help workers understand the job before making an
+              offer.
             </span>
 
             <input
               type="file"
               accept="image/*"
               multiple
-              onChange={(event) => handlePhotoSelection(event.target.files)}
+              onChange={(event) =>
+                void handlePhotoSelection(event.target.files)
+              }
               className="hidden"
             />
           </label>
 
+          <label className="block cursor-pointer rounded-3xl border border-[#c9ddd1] bg-[#eef8f2] p-5 text-center transition hover:bg-[#e4f3ea]">
+            <span className="block text-base font-black text-[#183027]">
+              Open Camera
+            </span>
+
+            <span className="mt-1 block text-sm font-semibold text-[#5f6f67]">
+              Use this on mobile to take a photo now.
+            </span>
+
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(event) =>
+                void handlePhotoSelection(event.target.files)
+              }
+              className="hidden"
+            />
+          </label>
+
+          {isUploading ? (
+            <div className="rounded-2xl border border-[#c9ddd1] bg-[#eef8f2] p-4 text-sm font-bold text-[#183027]">
+              Uploading images...
+            </div>
+          ) : null}
+
           {photoNames.length > 0 ? (
             <div className="rounded-2xl bg-[#eef8f2] p-4">
               {photoNames.map((name) => (
-                <p key={name} className="text-sm font-bold text-[#183027]">
+                <p
+                  key={name}
+                  className="text-sm font-bold text-[#183027]"
+                >
                   {name}
                 </p>
               ))}
             </div>
           ) : null}
+
+          <p className="text-sm font-semibold leading-6 text-[#5f6f67]">
+            Photos are optional, but strongly recommended.
+          </p>
         </div>
       ) : null}
 
       {step === 6 && !createdPostId ? (
         <div className="space-y-5">
-          <h2 className="text-2xl font-black">Review your post</h2>
+          <h2 className="text-2xl font-black">
+            Review your post
+          </h2>
 
           <div className="rounded-3xl bg-[#f7fbf8] p-5">
             <p className="text-sm font-black uppercase tracking-[0.18em] text-[#228454]">
               {selectedCategory?.name ?? "Category"}
             </p>
 
-            <h3 className="mt-2 text-2xl font-black">{title}</h3>
+            <h3 className="mt-2 text-2xl font-black">
+              {title}
+            </h3>
 
             <p className="mt-2 text-base font-semibold leading-7 text-[#5f6f67]">
               {description}
@@ -446,18 +608,28 @@ export default function PostWizard({ categories }: Props) {
 
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <div className="rounded-2xl bg-white p-4">
-                <p className="text-xs font-black uppercase text-[#5f6f67]">ZIP</p>
+                <p className="text-xs font-black uppercase text-[#5f6f67]">
+                  ZIP
+                </p>
                 <p className="font-black">{zip}</p>
               </div>
 
               <div className="rounded-2xl bg-white p-4">
-                <p className="text-xs font-black uppercase text-[#5f6f67]">Pay</p>
-                <p className="font-black">${payAmount}</p>
+                <p className="text-xs font-black uppercase text-[#5f6f67]">
+                  Pay
+                </p>
+                <p className="font-black">
+                  ${payAmount}
+                </p>
               </div>
 
               <div className="rounded-2xl bg-white p-4">
-                <p className="text-xs font-black uppercase text-[#5f6f67]">Photos</p>
-                <p className="font-black">{photoNames.length}</p>
+                <p className="text-xs font-black uppercase text-[#5f6f67]">
+                  Photos
+                </p>
+                <p className="font-black">
+                  {photoUrls.length}
+                </p>
               </div>
             </div>
           </div>
@@ -466,7 +638,9 @@ export default function PostWizard({ categories }: Props) {
 
       {step === 6 && createdPostId ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">Verify your phone</h2>
+          <h2 className="text-2xl font-black">
+            Verify your phone
+          </h2>
 
           <p className="text-base font-semibold leading-7 text-[#5f6f67]">
             Enter the 6-digit code sent to your phone.
@@ -475,7 +649,9 @@ export default function PostWizard({ categories }: Props) {
           <input
             value={verificationCode}
             onChange={(event) =>
-              setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+              setVerificationCode(
+                event.target.value.replace(/\D/g, "").slice(0, 6),
+              )
             }
             inputMode="numeric"
             placeholder="6-digit code"
@@ -489,7 +665,7 @@ export default function PostWizard({ categories }: Props) {
           <button
             type="button"
             onClick={previousStep}
-            className="flex-1 rounded-full border border-[#c9ddd1] bg-white px-5 py-4 text-base font-black text-[#183027]"
+            className="flex-1 rounded-full border border-[#c9ddd1] bg-white px-5 py-4 text-base font-black text-[#183027] transition hover:bg-[#eef8f2]"
           >
             Back
           </button>
@@ -499,7 +675,8 @@ export default function PostWizard({ categories }: Props) {
           <button
             type="button"
             onClick={nextStep}
-            className="flex-1 rounded-full bg-[#183027] px-5 py-4 text-base font-black text-white"
+            disabled={!canContinue}
+            className="flex-1 rounded-full bg-[#183027] px-5 py-4 text-base font-black text-white transition hover:bg-[#244638] disabled:cursor-not-allowed disabled:opacity-60"
           >
             Continue
           </button>
@@ -508,9 +685,9 @@ export default function PostWizard({ categories }: Props) {
         {step === 6 && !createdPostId ? (
           <button
             type="button"
-            onClick={createPost}
-            disabled={isSubmitting}
-            className="flex-1 rounded-full bg-[#183027] px-5 py-4 text-base font-black text-white disabled:opacity-60"
+            onClick={() => void createPost()}
+            disabled={isSubmitting || isUploading}
+            className="flex-1 rounded-full bg-[#183027] px-5 py-4 text-base font-black text-white transition hover:bg-[#244638] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? "Posting..." : "Post Job"}
           </button>
@@ -519,9 +696,11 @@ export default function PostWizard({ categories }: Props) {
         {step === 6 && createdPostId ? (
           <button
             type="button"
-            onClick={verifyPost}
-            disabled={isSubmitting}
-            className="flex-1 rounded-full bg-[#183027] px-5 py-4 text-base font-black text-white disabled:opacity-60"
+            onClick={() => void verifyPost()}
+            disabled={
+              isSubmitting || verificationCode.length !== 6
+            }
+            className="flex-1 rounded-full bg-[#183027] px-5 py-4 text-base font-black text-white transition hover:bg-[#244638] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? "Verifying..." : "Verify & Go Live"}
           </button>
