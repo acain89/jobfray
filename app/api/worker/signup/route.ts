@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createWorkerSessionToken, WORKER_SESSION_COOKIE } from "@/lib/worker-auth";
 import { workerSignupSchema } from "@/lib/worker-validation";
+import {
+  enforceRateLimit,
+  getRequestIp,
+} from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -22,6 +26,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const input = parsed.data;
+
+    const ip = getRequestIp(request);
+
+const rateLimit =
+  enforceRateLimit({
+    key: `worker-signup:${ip}`,
+    limit: 5,
+    windowMs: 60 * 60 * 1000,
+  });
+
+if (!rateLimit.allowed) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error:
+        "Too many signup attempts. Try again later.",
+    },
+    { status: 429 },
+  );
+}
 
     const existingWorker = await prisma.worker.findFirst({
       where: {

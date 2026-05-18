@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cloudinary } from "@/lib/cloudinary";
+import {
+  enforceRateLimit,
+  getRequestIp,
+} from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -11,6 +15,27 @@ const allowedMimeTypes = new Set([
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+
+     const ip = getRequestIp(request);
+
+const rateLimit =
+  enforceRateLimit({
+    key: `uploads:${ip}`,
+    limit: 25,
+    windowMs: 60 * 60 * 1000,
+  });
+
+if (!rateLimit.allowed) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error:
+        "Too many uploads. Try again later.",
+    },
+    { status: 429 },
+  );
+}    
+
     const formData = await request.formData();
     const files = formData.getAll("files");
 
@@ -76,6 +101,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         const stream = cloudinary.uploader.upload_stream(
           {
             folder: "jobfray",
+
+            moderation: "webpurify",
             resource_type: "image",
             transformation: [
               {

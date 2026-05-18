@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import JobMiniMap from "@/components/maps/JobMiniMap";
 
 export const dynamic = "force-dynamic";
+
 
 type JobDetailPageProps = {
   params: Promise<{
@@ -44,6 +46,8 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
       payAmountCents: true,
       needBy: true,
       zip: true,
+      publicLatitude: true,
+      publicLongitude: true,
       createdAt: true,
       category: {
         select: {
@@ -146,6 +150,28 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
               ))}
             </div>
           ) : null}
+
+        {job.publicLatitude &&
+job.publicLongitude ? (
+  <div className="mt-6">
+    <div className="rounded-3xl border border-[#dbe7df] bg-[#f7fbf8] p-5">
+      <h2 className="text-xl font-black text-[#183027]">
+        Approximate job area
+      </h2>
+
+      <p className="mt-2 text-base font-semibold leading-7 text-[#5f6f67]">
+        The exact address is hidden until
+        a match is accepted. This map
+        shows only the general area.
+      </p>
+
+      <JobMiniMap
+  latitude={Number(job.publicLatitude)}
+  longitude={Number(job.publicLongitude)}
+          />
+    </div>
+  </div>
+) : null}
 
           <div className="mt-6 rounded-3xl bg-[#f7fbf8] p-5">
             <h2 className="text-xl font-black text-[#183027]">

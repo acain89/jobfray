@@ -3,6 +3,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getWorkerSession } from "@/lib/worker-auth";
 import { getWorkerVerificationState } from "@/lib/worker-verification";
+import {
+  enforceRateLimit,
+  getRequestIp,
+} from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -37,6 +41,26 @@ export async function POST(
     const { postId } = await context.params;
     const body: unknown = await request.json();
     const parsed = interestSchema.safeParse(body);
+
+    const ip = getRequestIp(request);
+
+const rateLimit =
+  enforceRateLimit({
+    key: `job-interest:${ip}:${session.workerId}`,
+    limit: 20,
+    windowMs: 60 * 60 * 1000,
+  });
+
+if (!rateLimit.allowed) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error:
+        "Too many offers submitted. Slow down.",
+    },
+    { status: 429 },
+  );
+}
 
     if (!parsed.success) {
       return NextResponse.json(

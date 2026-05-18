@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { hashToken } from "@/lib/post-token";
+import {
+  isTwilioReady,
+  twilioClient,
+  twilioPhoneNumber,
+} from "@/lib/twilio";
 
 export const runtime = "nodejs";
 
@@ -30,15 +35,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const input = parsed.data;
 
     const post = await prisma.post.findFirst({
-      where: {
-        id: input.postId,
-        managementTokenHash: hashToken(input.token),
-      },
+  where: {
+    id: input.postId,
+    managementTokenHash: hashToken(input.token),
+  },
+
+  select: {
+    id: true,
+    title: true,
+    status: true,
+    payAmountCents: true,
+    exactAddress: true,
+
+    posterContact: {
       select: {
-        id: true,
-        status: true,
+        phone: true,
       },
-    });
+    },
+  },
+});
 
     if (!post) {
       return NextResponse.json(
@@ -61,15 +76,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const interest = await prisma.workerInterest.findFirst({
-      where: {
-        id: input.interestId,
-        postId: post.id,
-        status: "PENDING",
-      },
+  where: {
+    id: input.interestId,
+    postId: post.id,
+    status: "PENDING",
+  },
+
+  select: {
+    id: true,
+    offeredAmountCents: true,
+
+    worker: {
       select: {
-        id: true,
+        firstName: true,
+        phone: true,
       },
-    });
+    },
+  },
+});
 
     if (!interest) {
       return NextResponse.json(
@@ -134,11 +158,59 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 }),
     ]);
 
+const acceptedAmount =
+  interest.offeredAmountCents ??
+  post.payAmountCents ??
+  0;
+
+if (
+  isTwilioReady() &&
+  twilioClient &&
+  twilioPhoneNumber
+) {
+  try {
+    await Promise.all([
+      twilioClient.messages.create({
+        body:
+          `JobFray match confirmed.\n\n` +
+          `Worker: ${interest.worker.firstName}\n` +
+          `Phone: ${interest.worker.phone}\n` +
+          `Accepted pay: $${(
+            acceptedAmount / 100
+          ).toFixed(2)}`,
+
+        from: twilioPhoneNumber,
+        to: post.posterContact.phone,
+      }),
+
+      twilioClient.messages.create({
+        body:
+          `JobFray match confirmed.\n\n` +
+          `Poster phone: ${post.posterContact.phone}\n` +
+          `Address: ${post.exactAddress}\n` +
+          `Accepted pay: $${(
+            acceptedAmount / 100
+          ).toFixed(2)}`,
+
+        from: twilioPhoneNumber,
+        to: interest.worker.phone,
+      }),
+    ]);
+  } catch (smsError) {
+    console.error(
+      "Match SMS failed:",
+      smsError,
+    );
+  }
+}
+
+
     return NextResponse.json({
       ok: true,
     });
   } catch (error) {
     console.error("POST /api/post/manage/interest failed:", error);
+
 
     return NextResponse.json(
       {

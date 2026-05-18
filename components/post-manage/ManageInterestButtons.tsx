@@ -74,7 +74,7 @@ export default function ManageInterestButtons({
 
       <div className="rounded-3xl border border-[#dbe7df] bg-white p-4">
         <p className="text-sm font-bold leading-6 text-[#5f6f67]">
-          Accepting this worker immediately closes the job and unlocks both phone numbers.
+          Accepting this worker closes the public listing and exchanges contact info via text messaging.
         </p>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">

@@ -12,7 +12,7 @@ type FreeStuffDetailPageProps = {
 
 export default async function FreeStuffDetailPage({
   params,
-}: FreeStuffDetailPageProps) {
+}: FreeStuffDetailPageProps): Promise<React.ReactElement> {
   const { postId } = await params;
 
   const item = await prisma.post.findFirst({
@@ -96,15 +96,11 @@ export default async function FreeStuffDetailPage({
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="mt-6 flex aspect-video items-center justify-center rounded-3xl bg-[#eef8f2] text-6xl">
-              🎁
-            </div>
-          )}
+          ) : null}
 
           <div className="mt-6 rounded-3xl bg-[#f7fbf8] p-5">
             <h2 className="text-xl font-black text-[#183027]">
-              Item details
+              Item and pickup details
             </h2>
 
             <p className="mt-3 whitespace-pre-wrap text-base font-semibold leading-8 text-[#5f6f67]">
@@ -112,22 +108,16 @@ export default async function FreeStuffDetailPage({
             </p>
           </div>
 
-          <div className="mt-6 rounded-3xl border border-[#dbe7df] bg-white p-5">
+          <div className="mt-6 rounded-3xl border border-[#dbe7df] bg-[#f7fbf8] p-5">
             <h2 className="text-xl font-black text-[#183027]">
-              Pickup address is private
+              Pickup info
             </h2>
 
-            <p className="mt-2 text-base font-semibold leading-7 text-[#5f6f67]">
-              JobFray only shows the ZIP code publicly. Exact pickup details stay hidden until a connection flow is added.
+            <p className="mt-3 text-base font-semibold leading-7 text-[#5f6f67]">
+              Any address, phone number, curb note, or pickup instruction shown
+              here was typed by the poster in the public details box.
             </p>
           </div>
-
-          <button
-            type="button"
-            className="mt-6 w-full rounded-full bg-[#183027] px-5 py-4 text-base font-black text-white"
-          >
-            Claim / Contact Coming Soon
-          </button>
         </section>
       </section>
     </main>

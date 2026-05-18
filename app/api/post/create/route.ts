@@ -3,11 +3,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { twilioClient, twilioPhoneNumber } from "@/lib/twilio";
 import { createPostSchema } from "@/lib/post-validation";
+import { geocodeAddress } from "@/lib/mapbox";
+import { createFuzzyCoordinates } from "@/lib/location-fuzz";
 import {
   generateSecureToken,
   generateVerificationCode,
   hashToken,
 } from "@/lib/post-token";
+import {
+  enforceRateLimit,
+  getRequestIp,
+} from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -27,6 +33,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const input = parsed.data;
+
+    const ip = getRequestIp(request);
+
+const rateLimit =
+  enforceRateLimit({
+    key: `post-create:${ip}`,
+    limit: 5,
+    windowMs: 60 * 60 * 1000,
+  });
+
+if (!rateLimit.allowed) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error:
+        "Too many posts created. Try again later.",
+    },
+    { status: 429 },
+  );
+}  
 
     const category = await prisma.category.findFirst({
       where: {
@@ -56,6 +82,48 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const now = new Date();
     const verificationExpiresAt = new Date(now.getTime() + 10 * 60 * 1000);
     const postExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+let privateLatitude: number | null =
+  null;
+
+let privateLongitude: number | null =
+  null;
+
+let publicLatitude: number | null =
+  null;
+
+let publicLongitude: number | null =
+  null;
+
+const geocoded =
+  await geocodeAddress(
+    `${input.exactAddress}, ${input.zip}`,
+  );
+
+if (geocoded) {
+  privateLatitude =
+    geocoded.latitude;
+
+  privateLongitude =
+    geocoded.longitude;
+
+  const fuzzy =
+    createFuzzyCoordinates({
+      latitude:
+        geocoded.latitude,
+
+      longitude:
+        geocoded.longitude,
+
+      seed: managementToken,
+    });
+
+  publicLatitude =
+    fuzzy.latitude;
+
+  publicLongitude =
+    fuzzy.longitude;
+}
 
     const created = await prisma.$transaction(async (tx) => {
       const existingContact = await tx.posterContact.findFirst({
@@ -90,6 +158,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           needBy: input.needBy,
           zip: input.zip,
           exactAddress: input.exactAddress,
+          privateLatitude,
+          privateLongitude,
+          publicLatitude,
+          publicLongitude,
           managementTokenHash,
           expiresAt: postExpiresAt,
         },

@@ -14,74 +14,87 @@ type CreateResponse =
       error: string;
     };
 
-type VerifyResponse =
-  | {
-      ok: true;
-      postId: string;
-    }
-  | {
-      ok: false;
-      error: string;
-    };
-
-export default function FreeStuffPostForm() {
-  const [step, setStep] = useState<"details" | "verify">("details");
+export default function FreeStuffPostForm(): React.ReactElement {
+  const [step, setStep] = useState<"details" | "done">("details");
   const [zip, setZip] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [exactAddress, setExactAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [photoNames, setPhotoNames] = useState<string[]>([]);
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [postId, setPostId] = useState("");
-  const [createdPhone, setCreatedPhone] = useState("");
-  const [managementToken, setManagementToken] = useState("");
-  const [verificationCode, setVerificationCode] = useState("");
   const [error, setError] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handlePhotoSelection(files: FileList | null): Promise<void> {
-  if (!files) return;
+    setError("");
 
-  const selectedFiles = Array.from(files).slice(0, 3);
-
-  setPhotoNames(selectedFiles.map((file) => file.name));
-
-  const formData = new FormData();
-
-  selectedFiles.forEach((file) => {
-    formData.append("files", file);
-  });
-
-  try {
-    const response = await fetch("/api/uploads/images", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = (await response.json()) as
-      | {
-          ok: true;
-          urls: string[];
-        }
-      | {
-          ok: false;
-          error: string;
-        };
-
-    if (!data.ok) {
-      setError(data.error);
+    if (!files) {
       return;
     }
 
-    setPhotoUrls(data.urls);
-  } catch {
-    setError("Unable to upload images.");
+    const selectedFiles = Array.from(files).slice(0, 3);
+
+    if (selectedFiles.length === 0) {
+      setPhotoNames([]);
+      setPhotoUrls([]);
+      return;
+    }
+
+    setIsUploading(true);
+    setPhotoNames(selectedFiles.map((file) => file.name));
+
+    const formData = new FormData();
+
+    selectedFiles.forEach((file) => {
+      formData.append("files", file);
+    });
+
+    try {
+      const response = await fetch("/api/uploads/images", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = (await response.json()) as
+        | {
+            ok: true;
+            urls: string[];
+          }
+        | {
+            ok: false;
+            error: string;
+          };
+
+      if (!data.ok) {
+        setError(data.error);
+        setPhotoUrls([]);
+        return;
+      }
+
+      setPhotoUrls(data.urls);
+    } catch {
+      setError("Unable to upload images.");
+      setPhotoUrls([]);
+    } finally {
+      setIsUploading(false);
+    }
   }
-}
 
   async function createListing(): Promise<void> {
     setError("");
+
+    if (photoUrls.length === 0) {
+      setError("At least 1 photo is required.");
+      return;
+    }
+
+    if (isUploading) {
+      setError("Wait for photos to finish uploading.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -94,7 +107,6 @@ export default function FreeStuffPostForm() {
           zip,
           title,
           description,
-          exactAddress,
           phone,
           photoUrls,
         }),
@@ -108,48 +120,9 @@ export default function FreeStuffPostForm() {
       }
 
       setPostId(data.postId);
-      setCreatedPhone(data.phone);
-      setManagementToken(data.managementToken);
-      setStep("verify");
+      setStep("done");
     } catch {
       setError("Unable to create listing.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function verifyListing(): Promise<void> {
-    setError("");
-    setIsSubmitting(true);
-
-    try {
-      const response = await fetch("/api/post/verify", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          postId,
-          phone: createdPhone,
-          code: verificationCode,
-        }),
-      });
-
-      const data = (await response.json()) as VerifyResponse;
-
-      if (!data.ok) {
-        setError(data.error);
-        return;
-      }
-
-      const params = new URLSearchParams({
-        postId: data.postId,
-        token: managementToken,
-      });
-
-      window.location.href = `/post/success?${params.toString()}`;
-    } catch {
-      setError("Unable to verify listing.");
     } finally {
       setIsSubmitting(false);
     }
@@ -166,7 +139,7 @@ export default function FreeStuffPostForm() {
       </h1>
 
       <p className="mt-3 text-base font-semibold leading-7 text-[#5f6f67]">
-        Free to post. Your phone and exact address stay private until someone connects.
+        Free to post. Listings automatically expire after 72 hours.
       </p>
 
       {error ? (
@@ -179,7 +152,9 @@ export default function FreeStuffPostForm() {
         <div className="mt-6 space-y-4">
           <input
             value={zip}
-            onChange={(event) => setZip(event.target.value.replace(/\D/g, "").slice(0, 5))}
+            onChange={(event) =>
+              setZip(event.target.value.replace(/\D/g, "").slice(0, 5))
+            }
             inputMode="numeric"
             placeholder="ZIP code"
             className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-bold outline-none focus:border-[#4f9f75]"
@@ -194,41 +169,36 @@ export default function FreeStuffPostForm() {
 
           <textarea
             value={description}
-            onChange={(event) => setDescription(event.target.value.slice(0, 1000))}
+            onChange={(event) =>
+              setDescription(event.target.value.slice(0, 1000))
+            }
             rows={5}
-            placeholder="Describe the item and pickup details..."
+            placeholder='Example: Free stuff on the curb on Pine St. First come, first served.'
             className="w-full resize-none rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-semibold leading-7 outline-none focus:border-[#4f9f75]"
-          />
-
-          <input
-            value={exactAddress}
-            onChange={(event) => setExactAddress(event.target.value.slice(0, 200))}
-            placeholder="Pickup address"
-            className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-bold outline-none focus:border-[#4f9f75]"
           />
 
           <input
             value={phone}
             onChange={(event) => setPhone(event.target.value)}
             inputMode="tel"
-            placeholder="Phone number"
+            placeholder="Phone number for delete link"
             className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-bold outline-none focus:border-[#4f9f75]"
           />
 
           <label className="block cursor-pointer rounded-3xl border border-dashed border-[#c9ddd1] bg-[#f7fbf8] p-6 text-center">
             <span className="block text-lg font-black text-[#183027]">
-              Choose up to 3 photos
+              Choose 1–3 photos
             </span>
 
             <span className="mt-2 block text-sm font-semibold text-[#5f6f67]">
-              Upload storage comes next. For now this confirms the flow.
+              At least 1 photo is required.
             </span>
 
             <input
               type="file"
               accept="image/*"
               multiple
-              onChange={(event) => handlePhotoSelection(event.target.files)}
+              onChange={(event) => void handlePhotoSelection(event.target.files)}
               className="hidden"
             />
           </label>
@@ -240,13 +210,17 @@ export default function FreeStuffPostForm() {
                   {name}
                 </p>
               ))}
+
+              <p className="mt-2 text-xs font-black uppercase tracking-[0.18em] text-[#5f6f67]">
+                {isUploading ? "Uploading..." : "Uploaded"}
+              </p>
             </div>
           ) : null}
 
           <button
             type="button"
-            onClick={createListing}
-            disabled={isSubmitting}
+            onClick={() => void createListing()}
+            disabled={isSubmitting || isUploading}
             className="w-full rounded-full bg-[#183027] px-5 py-4 text-base font-black text-white disabled:opacity-60"
           >
             {isSubmitting ? "Creating..." : "Create Free Listing"}
@@ -254,27 +228,36 @@ export default function FreeStuffPostForm() {
         </div>
       ) : null}
 
-      {step === "verify" ? (
-        <div className="mt-6 space-y-4">
+      {step === "done" ? (
+        <div className="mt-6 rounded-3xl border border-[#cde7d8] bg-[#eef8f2] p-6">
+          <p className="text-sm font-black uppercase tracking-[0.18em] text-[#228454]">
+            Listing Live
+          </p>
 
-          <input
-            value={verificationCode}
-            onChange={(event) =>
-              setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))
-            }
-            inputMode="numeric"
-            placeholder="6-digit code"
-            className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-xl font-black tracking-[0.3em] outline-none focus:border-[#4f9f75]"
-          />
+          <h2 className="mt-2 text-3xl font-black text-[#183027]">
+            Your free listing is now live.
+          </h2>
 
-          <button
-            type="button"
-            onClick={verifyListing}
-            disabled={isSubmitting}
-            className="w-full rounded-full bg-[#183027] px-5 py-4 text-base font-black text-white disabled:opacity-60"
-          >
-            {isSubmitting ? "Verifying..." : "Verify & Go Live"}
-          </button>
+          <p className="mt-3 text-base font-semibold leading-7 text-[#5f6f67]">
+            Your listing will automatically expire after 72 hours. A delete link
+            has been sent to the phone number you entered.
+          </p>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <a
+              href={`/free-stuff/${postId}`}
+              className="rounded-full bg-[#183027] px-5 py-4 text-center text-base font-black text-white"
+            >
+              View Listing
+            </a>
+
+            <a
+              href="/free-stuff"
+              className="rounded-full border border-[#dbe7df] bg-white px-5 py-4 text-center text-base font-black text-[#183027]"
+            >
+              Browse Free Stuff
+            </a>
+          </div>
         </div>
       ) : null}
     </section>

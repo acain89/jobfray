@@ -1,17 +1,36 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { getNearbyZips } from "@/lib/zip-radius";
 
 export const dynamic = "force-dynamic";
 
 type FreeStuffPageProps = {
-  searchParams: Promise<{
-    zip?: string;
-  }>;
+ searchParams: Promise<{
+  zip?: string;
+  radius?: string;
+}>;
 };
 
 export default async function FreeStuffPage({ searchParams }: FreeStuffPageProps) {
   const params = await searchParams;
-  const zip = params.zip?.replace(/\D/g, "").slice(0, 5) ?? "";
+  const zip =
+  params.zip
+    ?.replace(/\D/g, "")
+    .slice(0, 5) ?? "";
+
+const radius = ["5", "10", "20"].includes(
+  params.radius ?? "",
+)
+  ? params.radius ?? "10"
+  : "10";
+
+const nearbyZips =
+  zip.length === 5
+    ? getNearbyZips(
+        zip,
+        Number(radius),
+      )
+    : [];
 
   const items =
     zip.length === 5
@@ -19,12 +38,14 @@ export default async function FreeStuffPage({ searchParams }: FreeStuffPageProps
           where: {
             type: "FREE_STUFF",
             status: "LIVE",
-            zip,
+            zip: {
+            in: nearbyZips,
+            },
           },
           orderBy: {
             createdAt: "desc",
           },
-          take: 50,
+          take: 20,
           select: {
             id: true,
             title: true,
@@ -80,7 +101,10 @@ export default async function FreeStuffPage({ searchParams }: FreeStuffPageProps
             Browse and post free local items. No login required.
           </p>
 
-          <form className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]" action="/free-stuff">
+          <form
+  className="mt-6 grid gap-3 sm:grid-cols-[1fr_180px_auto]"
+  action="/free-stuff"
+>
             <input
               name="zip"
               defaultValue={zip}
@@ -89,6 +113,16 @@ export default async function FreeStuffPage({ searchParams }: FreeStuffPageProps
               placeholder="Enter ZIP code"
               className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-black outline-none focus:border-[#4f9f75]"
             />
+  
+         <select
+  name="radius"
+  defaultValue={radius}
+  className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-black outline-none focus:border-[#4f9f75]"
+>
+  <option value="5">5 miles</option>
+  <option value="10">10 miles</option>
+  <option value="20">20 miles</option>
+</select>
 
             <button
               type="submit"

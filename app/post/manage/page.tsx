@@ -69,10 +69,6 @@ export default async function ManagePostPage({ searchParams }: ManagePostPagePro
           createdAt: true,
           worker: {
             select: {
-              firstName: true,
-              lastInitial: true,
-              username: true,
-              phone: true,
               ratingAverage: true,
               ratingCount: true,
               completedJobCount: true,
@@ -155,15 +151,12 @@ export default async function ManagePostPage({ searchParams }: ManagePostPagePro
             </p>
 
             <h2 className="mt-2 text-3xl font-black text-[#183027]">
-              {acceptedInterest.worker.firstName}
-              {acceptedInterest.worker.lastInitial
-                ? ` ${acceptedInterest.worker.lastInitial}.`
-                : ""}
-            </h2>
+  Worker matched successfully
+</h2>
 
-            <p className="mt-2 text-base font-bold text-[#183027]">
-              Phone: {acceptedInterest.worker.phone}
-            </p>
+<p className="mt-2 text-base font-bold text-[#183027]">
+  Contact details were sent by text message.
+</p>
 
             <p className="mt-1 text-base font-semibold text-[#5f6f67]">
               Accepted offer: {formatMoney(acceptedInterest.offeredAmountCents)}
@@ -213,18 +206,10 @@ export default async function ManagePostPage({ searchParams }: ManagePostPagePro
                         {statusLabel(interest.status)}
                       </p>
 
-                      <h3 className="mt-1 text-2xl font-black text-[#183027]">
-                        {interest.worker.firstName}
-                        {interest.worker.lastInitial
-                          ? ` ${interest.worker.lastInitial}.`
-                          : ""}
-                      </h3>
-
                       <p className="mt-2 text-sm font-bold leading-6 text-[#5f6f67]">
-                        @{interest.worker.username} •{" "}
-                        {Number(interest.worker.ratingAverage).toFixed(2)} rating •{" "}
-                        {interest.worker.completedJobCount} jobs done
-                      </p>
+                       Anonymous worker •{" "}
+                      {Number(interest.worker.ratingAverage).toFixed(2)} rating
+                       </p>
 
                       <div className="mt-3 flex flex-wrap gap-2">
                     <div className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#183027]">
@@ -265,7 +250,7 @@ export default async function ManagePostPage({ searchParams }: ManagePostPagePro
 
                   {interest.status === "ACCEPTED" ? (
                     <div className="mt-4 rounded-2xl bg-white p-4 text-sm font-bold text-[#183027]">
-                      Worker contact unlocked: {interest.worker.phone}
+                      Worker successfully matched.
                     </div>
                   ) : null}
                 </div>

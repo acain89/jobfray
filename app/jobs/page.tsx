@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { getNearbyZips } from "@/lib/zip-radius";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,19 @@ function formatNeedBy(value: string | null): string {
 export default async function JobsPage({ searchParams }: JobsPageProps) {
   const params = await searchParams;
   const zip = params.zip?.replace(/\D/g, "").slice(0, 5) ?? "";
-  const radius = params.radius ?? "5";
+  const radius = ["5", "10", "20"].includes(
+  params.radius ?? "",
+)
+  ? params.radius ?? "10"
+  : "10";
+
+const nearbyZips =
+  zip.length === 5
+    ? getNearbyZips(
+        zip,
+        Number(radius),
+      )
+    : [];
 
   const jobs =
     zip.length === 5
@@ -39,7 +52,9 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           where: {
             type: "JOB",
             status: "LIVE",
-            zip,
+            zip: {
+            in: nearbyZips,
+            },
           },
           orderBy: {
             createdAt: "desc",
@@ -129,7 +144,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           </form>
 
           <p className="mt-3 text-sm font-semibold leading-6 text-[#5f6f67]">
-            Radius selection is ready in the UI. Current MVP results are ZIP-exact until ZIP coordinate lookup is added.
+            Showing nearby listings based on ZIP radius search.
           </p>
         </section>
 
