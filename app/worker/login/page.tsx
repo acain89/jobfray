@@ -1,4 +1,5 @@
 import Link from "next/link";
+
 import WorkerLoginForm from "@/components/worker/WorkerLoginForm";
 
 type WorkerLoginPageProps = {
@@ -7,44 +8,116 @@ type WorkerLoginPageProps = {
   }>;
 };
 
-function safeNextPath(value: string | undefined): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+function safeNextPath(
+  value: string | undefined,
+): string {
+  if (
+    !value ||
+    !value.startsWith("/") ||
+    value.startsWith("//")
+  ) {
     return "/worker/dashboard";
   }
 
   return value;
 }
 
-export default async function WorkerLoginPage({ searchParams }: WorkerLoginPageProps) {
+export default async function WorkerLoginPage({
+  searchParams,
+}: WorkerLoginPageProps): Promise<React.ReactElement> {
   const params = await searchParams;
-  const nextPath = safeNextPath(params.next);
+
+  const nextPath = safeNextPath(
+    params.next,
+  );
 
   return (
-    <main className="min-h-screen px-4 py-4 text-[#17231d] sm:px-6 lg:px-8">
-      <section className="mx-auto flex max-w-2xl flex-col gap-5">
-        <header className="flex items-center justify-between rounded-[2rem] border border-[#dbe7df] bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#afe1c6] text-lg font-black text-[#183027] shadow-sm">
+    <main className="min-h-screen bg-[#f6faf7] px-4 py-4 text-[#17231d] sm:px-6 lg:px-8">
+      <section className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+        <header className="jf-shell-header">
+          <Link
+            href="/"
+            className="jf-brand-link"
+          >
+            <div className="jf-brand-mark">
               JF
             </div>
 
             <div>
-              <p className="text-lg font-black tracking-tight">JobFray</p>
+              <p className="text-lg font-black tracking-tight">
+                JobFray
+              </p>
+
               <p className="-mt-1 text-xs font-semibold text-[#5f6f67]">
                 Worker access
               </p>
             </div>
           </Link>
 
-          <Link
-            href="/jobs"
-            className="rounded-full border border-[#c9ddd1] bg-[#eef8f2] px-4 py-2 text-sm font-bold text-[#183027]"
-          >
-            Jobs
-          </Link>
+          <div className="jf-header-actions">
+            <Link
+              href="/"
+              className="jf-header-button"
+            >
+              Home
+            </Link>
+
+            <Link
+              href="/jobs"
+              className="jf-header-button"
+            >
+              Browse Jobs
+            </Link>
+
+            <Link
+              href="/worker/signup"
+              className="jf-header-button-dark"
+            >
+              Sign Up
+            </Link>
+          </div>
         </header>
 
-        <WorkerLoginForm nextPath={nextPath} />
+        <section className="jf-section-card overflow-hidden border border-[#dbe7df] bg-white p-5 shadow-[0_25px_70px_rgba(24,48,39,0.08)] sm:p-7">
+          <div className="mb-7">
+            <div className="jf-hero-badge">
+              Worker Login
+            </div>
+
+            <h1 className="mt-4 text-4xl font-black tracking-tight text-[#17231d] sm:text-5xl">
+              Get back to local work.
+            </h1>
+
+            <p className="mt-4 max-w-2xl text-base font-semibold leading-7 text-[#5f6f67]">
+              Log in to browse nearby jobs,
+              contact posters, manage offers,
+              and access your JobFray worker
+              dashboard.
+            </p>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              <span className="jf-soft-pill">
+                Browse local work
+              </span>
+
+              <span className="jf-soft-pill">
+                Contact posters
+              </span>
+
+              <span className="jf-soft-pill">
+                Manage offers
+              </span>
+
+              <span className="jf-soft-pill">
+                Verified profile
+              </span>
+            </div>
+          </div>
+
+          <WorkerLoginForm
+            nextPath={nextPath}
+          />
+        </section>
       </section>
     </main>
   );

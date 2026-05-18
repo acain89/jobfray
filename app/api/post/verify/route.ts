@@ -22,6 +22,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const input = parsed.data;
 
+    const normalizedPhone =
+      input.phone.replace(/\D/g, "");
+
     const post = await prisma.post.findUnique({
       where: {
         id: input.postId,
@@ -45,7 +48,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const verification = await prisma.smsVerification.findFirst({
       where: {
-        phone: input.phone,
+        phone: normalizedPhone,
         purpose: `POST:${post.id}`,
         verifiedAt: null,
         expiresAt: {
@@ -77,13 +80,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const matches = await bcrypt.compare(input.code, verification.codeHash);
+        const normalizedCode =
+      input.code
+        .replace(/\D/g, "")
+        .slice(0, 6);
+
+    const matches =
+      await bcrypt.compare(
+        normalizedCode,
+        verification.codeHash,
+      );
 
     if (!matches) {
       await prisma.smsVerification.update({
         where: {
           id: verification.id,
         },
+
         data: {
           attempts: {
             increment: 1,
@@ -94,9 +107,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         {
           ok: false,
-          error: "Incorrect verification code.",
+          error:
+            "Incorrect verification code.",
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 

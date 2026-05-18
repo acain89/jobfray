@@ -349,13 +349,24 @@ export default function PostWizard({ categories }: Props) {
             ))}
           </div>
 
-          <input
-            value={payAmount}
-            onChange={(event) => setPayAmount(event.target.value)}
-            inputMode="decimal"
-            placeholder="Payment amount, example: 75"
-            className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-bold outline-none focus:border-[#4f9f75]"
-          />
+          <div className="space-y-2">
+  <label className="block text-sm font-black text-[#183027]">
+    How much do you want to pay for this job?
+  </label>
+
+  <input
+    value={payAmount}
+    onChange={(event) =>
+      setPayAmount(
+        event.target.value.replace(/[^0-9.]/g, ""),
+      )
+    }
+    inputMode="decimal"
+    placeholder="Example: 75"
+    className="jf-search-input text-lg font-black"
+  />
+
+  <p className="
         </div>
       ) : null}
 

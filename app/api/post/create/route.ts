@@ -125,6 +125,14 @@ if (geocoded) {
     fuzzy.longitude;
 }
 
+    if (
+      input.photoUrls.length > 3
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+
     const created = await prisma.$transaction(async (tx) => {
       const existingContact = await tx.posterContact.findFirst({
         where: {
@@ -192,17 +200,46 @@ if (geocoded) {
       return post;
     });
 
-   if (twilioClient && twilioPhoneNumber) {
-  await twilioClient.messages.create({
-    body: `JobFray verification code: ${verificationCode}`,
-    from: twilioPhoneNumber,
-    to: `+${input.phone}`,
-  });
-} else {
-  console.log(
-    `DEV ONLY — JobFray post verification code for ${input.phone}: ${verificationCode}`,
-  );
-}
+      const normalizedPhone =
+      input.phone.replace(/\D/g, "");
+
+    if (
+      twilioClient &&
+      twilioPhoneNumber
+    ) {
+      try {
+        await twilioClient.messages.create({
+          body:
+            `JobFray verification code: ${verificationCode}`,
+
+          from: twilioPhoneNumber,
+
+          to: normalizedPhone.startsWith("1")
+            ? `+${normalizedPhone}`
+            : `+1${normalizedPhone}`,
+        });
+      } catch (smsError) {
+        console.error(
+          "Twilio verification send failed:",
+          smsError,
+        );
+
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Unable to send verification code.",
+          },
+          {
+            status: 500,
+          },
+        );
+      }
+    } else {
+      console.log(
+        `DEV ONLY — JobFray post verification code for ${input.phone}: ${verificationCode}`,
+      );
+    }
 
     return NextResponse.json({
       ok: true,

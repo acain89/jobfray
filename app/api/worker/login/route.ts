@@ -1,31 +1,67 @@
 import bcrypt from "bcryptjs";
 import { NextRequest, NextResponse } from "next/server";
+
 import { prisma } from "@/lib/prisma";
-import { createWorkerSessionToken, WORKER_SESSION_COOKIE } from "@/lib/worker-auth";
+import {
+  createWorkerSessionToken,
+  WORKER_SESSION_COOKIE,
+} from "@/lib/worker-auth";
 import { workerLoginSchema } from "@/lib/worker-validation";
+import {
+  enforceRateLimit,
+  getRequestIp,
+} from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+function normalizeUsername(username: string): string {
+  return username.trim().toLowerCase();
+}
+
+export async function POST(
+  request: NextRequest,
+): Promise<NextResponse> {
   try {
     const body: unknown = await request.json();
+
     const parsed = workerLoginSchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json(
         {
           ok: false,
-          error: parsed.error.issues[0]?.message ?? "Invalid login details.",
+          error:
+            parsed.error.issues[0]?.message ??
+            "Invalid login details.",
         },
         { status: 400 },
       );
     }
 
     const input = parsed.data;
+    const username = normalizeUsername(input.username);
+    const ip = getRequestIp(request);
+
+    const rateLimit = enforceRateLimit({
+      key: `worker-login:${ip}:${username}`,
+      limit: 10,
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Too many login attempts. Try again later.",
+        },
+        { status: 429 },
+      );
+    }
 
     const worker = await prisma.worker.findUnique({
       where: {
-        username: input.username,
+        username,
       },
       select: {
         id: true,
@@ -39,19 +75,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         {
           ok: false,
-          error: "Invalid username or password.",
+          error:
+            "Invalid username or password.",
         },
         { status: 401 },
       );
     }
 
-    const passwordMatches = await bcrypt.compare(input.password, worker.passwordHash);
+    const passwordMatches = await bcrypt.compare(
+      input.password,
+      worker.passwordHash,
+    );
 
     if (!passwordMatches) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Invalid username or password.",
+          error:
+            "Invalid username or password.",
         },
         { status: 401 },
       );
@@ -67,17 +108,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       workerId: worker.id,
     });
 
-    response.cookies.set(WORKER_SESSION_COOKIE, token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30,
-    });
+    response.cookies.set(
+      WORKER_SESSION_COOKIE,
+      token,
+      {
+        httpOnly: true,
+        sameSite: "lax",
+        secure:
+          process.env.NODE_ENV === "production",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 30,
+      },
+    );
 
     return response;
   } catch (error) {
-    console.error("POST /api/worker/login failed:", error);
+    console.error(
+      "POST /api/worker/login failed:",
+      error,
+    );
 
     return NextResponse.json(
       {

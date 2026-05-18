@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+
 import { loadStripe } from "@stripe/stripe-js";
 
 const stripePromise = loadStripe(
@@ -8,16 +9,33 @@ const stripePromise = loadStripe(
 );
 
 type StartResponse =
-  | { ok: true; clientSecret: string }
-  | { ok: false; error: string };
+  | {
+      ok: true;
+      clientSecret: string;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
 
 type SyncResponse =
-  | { ok: true; verified: boolean; status: string }
-  | { ok: false; error: string };
+  | {
+      ok: true;
+      verified: boolean;
+      status: string;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
 
 type Props = {
   alreadyVerified: boolean;
 };
+
+function formatStatus(status: string): string {
+  return status.replaceAll("_", " ").toLowerCase();
+}
 
 export default function WorkerIdentityForm({
   alreadyVerified,
@@ -27,27 +45,36 @@ export default function WorkerIdentityForm({
     alreadyVerified ? "Identity verified." : "",
   );
   const [isStarting, setIsStarting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   async function syncIdentity(): Promise<void> {
     setError("");
+    setIsRefreshing(true);
 
-    const response = await fetch("/api/worker/identity/sync", {
-      method: "POST",
-    });
+    try {
+      const response = await fetch("/api/worker/identity/sync", {
+        method: "POST",
+      });
 
-    const data = (await response.json()) as SyncResponse;
+      const data = (await response.json()) as SyncResponse;
 
-    if (!data.ok) {
-      setError(data.error);
-      return;
+      if (!response.ok || !data.ok) {
+        setError(data.ok ? "Unable to refresh status." : data.error);
+        return;
+      }
+
+      if (data.verified) {
+        setStatus("Identity verified successfully.");
+        window.location.href = "/worker/dashboard";
+        return;
+      }
+
+      setStatus(`Verification status: ${formatStatus(data.status)}`);
+    } catch {
+      setError("Unable to refresh verification status.");
+    } finally {
+      setIsRefreshing(false);
     }
-
-    if (data.verified) {
-      window.location.href = "/worker/dashboard";
-      return;
-    }
-
-    setStatus(`Verification status: ${data.status.replaceAll("_", " ")}`);
   }
 
   async function startIdentity(): Promise<void> {
@@ -69,8 +96,12 @@ export default function WorkerIdentityForm({
 
       const data = (await response.json()) as StartResponse;
 
-      if (!data.ok) {
-        setError(data.error);
+      if (!response.ok || !data.ok) {
+        setError(
+          data.ok
+            ? "Unable to start identity verification."
+            : data.error,
+        );
         return;
       }
 
@@ -78,7 +109,8 @@ export default function WorkerIdentityForm({
 
       if (result.error) {
         setError(
-          result.error.message ?? "Identity verification was not completed.",
+          result.error.message ??
+            "Identity verification was not completed.",
         );
         return;
       }
@@ -91,19 +123,35 @@ export default function WorkerIdentityForm({
     }
   }
 
+  const isBusy = isStarting || isRefreshing;
+
   return (
-    <div className="rounded-[2.25rem] border border-[#dbe7df] bg-white p-6 shadow-sm sm:p-8">
+    <div className="rounded-[2.25rem] border border-[#dbe7df] bg-white p-6 shadow-[0_20px_60px_rgba(24,48,39,0.08)] sm:p-8">
       <p className="text-sm font-black uppercase tracking-[0.18em] text-[#228454]">
         Identity Verification
       </p>
 
-      <h1 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">
+      <h1 className="mt-2 text-4xl font-black tracking-tight text-[#17231d] sm:text-5xl">
         Verify your identity.
       </h1>
 
       <p className="mt-3 text-base font-semibold leading-7 text-[#5f6f67]">
-        JobFray uses Stripe Identity to verify your government ID and selfie.
+        JobFray uses Stripe Identity to verify your government ID and
+        selfie before unlocking verified worker access.
       </p>
+
+      <div className="mt-5 rounded-[1.5rem] border border-[#dbe7df] bg-[#eef8f2] p-4">
+        <p className="text-sm font-black text-[#183027]">
+          Verification helps protect:
+        </p>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="jf-soft-pill">Posters</span>
+          <span className="jf-soft-pill">Workers</span>
+          <span className="jf-soft-pill">Local jobs</span>
+          <span className="jf-soft-pill">Trust</span>
+        </div>
+      </div>
 
       {error ? (
         <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
@@ -120,8 +168,8 @@ export default function WorkerIdentityForm({
       <button
         type="button"
         onClick={() => void startIdentity()}
-        disabled={alreadyVerified || isStarting}
-        className="mt-6 w-full rounded-full bg-[#183027] px-5 py-4 text-base font-black text-white disabled:opacity-60"
+        disabled={alreadyVerified || isBusy}
+        className="mt-6 flex h-[58px] w-full items-center justify-center rounded-full bg-[#183027] px-5 text-base font-black text-white transition-all duration-200 hover:-translate-y-[1px] hover:bg-[#244638] disabled:cursor-not-allowed disabled:opacity-60"
       >
         {alreadyVerified
           ? "Identity Verified"
@@ -134,9 +182,10 @@ export default function WorkerIdentityForm({
         <button
           type="button"
           onClick={() => void syncIdentity()}
-          className="mt-3 w-full rounded-full border border-[#c9ddd1] bg-[#eef8f2] px-5 py-4 text-base font-black text-[#183027]"
+          disabled={isBusy}
+          className="mt-3 flex h-[54px] w-full items-center justify-center rounded-full border border-[#c9ddd1] bg-[#eef8f2] px-5 text-base font-black text-[#183027] transition-all duration-200 hover:-translate-y-[1px] hover:bg-[#e4f3ea] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Refresh Status
+          {isRefreshing ? "Checking..." : "Refresh Status"}
         </button>
       ) : null}
     </div>

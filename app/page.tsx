@@ -65,7 +65,7 @@ export default async function HomePage(): Promise<React.ReactElement> {
               <p className="text-lg font-black tracking-tight">JobFray</p>
 
               <p className="-mt-1 text-xs font-semibold text-[#5f6f67]">
-                ZIP-based local help
+                Local jobs, quick help, and free stuff
               </p>
             </div>
           </Link>
@@ -80,7 +80,7 @@ export default async function HomePage(): Promise<React.ReactElement> {
 
         <section className="rounded-[2.25rem] border border-[#dbe7df] bg-white p-6 shadow-sm sm:p-8 lg:p-10">
           <div className="mb-5 inline-flex rounded-full bg-[#eef8f2] px-4 py-2 text-sm font-black text-[#228454]">
-            Post fast. Browse local. Keep it simple.
+            Post free. Browse local. Find help fast.
           </div>
 
           <h1 className="max-w-4xl text-5xl font-black leading-[0.95] tracking-tight text-[#17231d] sm:text-6xl lg:text-7xl">
@@ -141,9 +141,9 @@ export default async function HomePage(): Promise<React.ReactElement> {
             <div>
               <Link
                 href="/free-stuff"
-                className="block rounded-[1.75rem] border border-[#dbe7df] bg-white p-6 text-center shadow-sm transition hover:bg-[#eef8f2]"
+                className="block rounded-[1.75rem] border border-[#c9e977] bg-[#d9f99d] p-6 text-center shadow-sm transition hover:bg-[#bef264]"
               >
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-[#eef8f2] text-3xl">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-white/80 text-3xl">
                   🎁
                 </div>
 
@@ -151,7 +151,7 @@ export default async function HomePage(): Promise<React.ReactElement> {
                   Free Stuff
                 </span>
 
-                <span className="mt-3 block text-base font-bold leading-6 text-[#5f6f67]">
+                <span className="mt-3 block text-base font-bold leading-6 text-[#35584a]">
                   Free to browse and post.
                 </span>
               </Link>
@@ -220,8 +220,8 @@ export default async function HomePage(): Promise<React.ReactElement> {
             ],
 
             [
-              "Paid for Workers",
-              "Only job seekers need a membership.",
+              "Verified Workers",
+              "Workers create an account before contacting posters.",
             ],
           ].map(([title, text]) => (
             <div
