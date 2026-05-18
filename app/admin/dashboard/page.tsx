@@ -153,7 +153,7 @@ export default async function AdminDashboardPage(): Promise<React.ReactElement> 
             </p>
           ) : (
             <div className="mt-5 grid gap-4">
-              {flaggedPosts.map((post) => (
+              {flaggedPosts.map((post: (typeof flaggedPosts)[number]) => (
                 <div
                   key={post.id}
                   className="rounded-3xl border border-[#dbe7df] bg-[#f7fbf8] p-5"
