@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidZip } from "@/lib/zip-radius";
 
 export const needByValues = [
   "ASAP",
@@ -7,6 +8,14 @@ export const needByValues = [
   "THIS_WEEK",
   "FLEXIBLE",
 ] as const;
+
+const zipSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{5}$/, "Enter a valid 5-digit ZIP code.")
+  .refine((zip) => isValidZip(zip), {
+    message: "Enter a supported ZIP code.",
+  });
 
 const phoneSchema = z
   .string()
@@ -19,8 +28,13 @@ const phoneSchema = z
   })
   .transform((value) => (value.length === 10 ? `1${value}` : value));
 
+const photoUrlsSchema = z
+  .array(z.string().url())
+  .min(1, "At least 1 photo is required.")
+  .max(3, "Maximum 3 photos allowed.");
+
 export const createPostSchema = z.object({
-  zip: z.string().trim().regex(/^\d{5}$/, "Enter a valid 5-digit ZIP code."),
+  zip: zipSchema,
   categoryId: z.string().trim().min(1, "Choose a category."),
   title: z.string().trim().min(6).max(80),
   description: z.string().trim().min(20).max(1000),
@@ -28,7 +42,15 @@ export const createPostSchema = z.object({
   phone: phoneSchema,
   needBy: z.enum(needByValues),
   payAmountCents: z.number().int().min(100).max(500000),
-  photoUrls: z.array(z.string().url()).max(3).optional().default([]),
+  photoUrls: photoUrlsSchema,
+});
+
+export const createFreeStuffPostSchema = z.object({
+  zip: zipSchema,
+  title: z.string().trim().min(6).max(80),
+  description: z.string().trim().min(20).max(1000),
+  phone: phoneSchema,
+  photoUrls: photoUrlsSchema,
 });
 
 export const verifyPostSchema = z.object({
@@ -38,4 +60,5 @@ export const verifyPostSchema = z.object({
 });
 
 export type CreatePostInput = z.infer<typeof createPostSchema>;
+export type CreateFreeStuffPostInput = z.infer<typeof createFreeStuffPostSchema>;
 export type VerifyPostInput = z.infer<typeof verifyPostSchema>;

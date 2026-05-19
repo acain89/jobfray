@@ -1,7 +1,6 @@
 import Link from "next/link";
-
 import { prisma } from "@/lib/prisma";
-import { getNearbyZips } from "@/lib/zip-radius";
+import { formatZipPlace, getNearbyZips, getZipPlace } from "@/lib/zip-radius";
 
 export const dynamic = "force-dynamic";
 
@@ -12,26 +11,19 @@ type JobsPageProps = {
   }>;
 };
 
-function formatMoney(
-  cents: number | null,
-): string {
+function formatMoney(cents: number | null): string {
   if (!cents || cents <= 0) {
     return "Pay listed";
   }
 
-  return new Intl.NumberFormat(
-    "en-US",
-    {
-      style: "currency",
-      currency: "USD",
-      maximumFractionDigits: 0,
-    },
-  ).format(cents / 100);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(cents / 100);
 }
 
-function formatNeedBy(
-  value: string | null,
-): string {
+function formatNeedBy(value: string | null): string {
   if (!value) {
     return "Flexible";
   }
@@ -39,11 +31,7 @@ function formatNeedBy(
   return value
     .replaceAll("_", " ")
     .toLowerCase()
-    .replace(
-      /\b\w/g,
-      (letter) =>
-        letter.toUpperCase(),
-    );
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export default async function JobsPage({
@@ -51,78 +39,54 @@ export default async function JobsPage({
 }: JobsPageProps): Promise<React.ReactElement> {
   const params = await searchParams;
 
-  const zip =
-    params.zip
-      ?.replace(/\D/g, "")
-      .slice(0, 5) ?? "";
+  const zip = params.zip?.replace(/\D/g, "").slice(0, 5) ?? "";
+  const zipPlace = zip.length === 5 ? getZipPlace(zip) : null;
 
-  const radius = ["5", "10", "20"].includes(
-    params.radius ?? "",
-  )
+  const radius = ["5", "10", "20"].includes(params.radius ?? "")
     ? params.radius ?? "10"
     : "10";
 
-  const nearbyZips =
-    zip.length === 5
-      ? getNearbyZips(
-          zip,
-          Number(radius),
-        )
-      : [];
+  const nearbyZips = zipPlace ? getNearbyZips(zip, Number(radius)) : [];
 
-  const jobs =
-    zip.length === 5
-      ? await prisma.post.findMany({
-          where: {
-            type: "JOB",
-            status: "LIVE",
-
-            zip: {
-              in: nearbyZips,
+  const jobs = zipPlace
+    ? await prisma.post.findMany({
+        where: {
+          type: "JOB",
+          status: "LIVE",
+          zip: {
+            in: nearbyZips,
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: 50,
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          payAmountCents: true,
+          needBy: true,
+          zip: true,
+          createdAt: true,
+          category: {
+            select: {
+              name: true,
             },
           },
-
-          orderBy: {
-            createdAt: "desc",
-          },
-
-          take: 50,
-
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            payAmountCents: true,
-            needBy: true,
-            zip: true,
-            createdAt: true,
-
-            category: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        })
-      : [];
+        },
+      })
+    : [];
 
   return (
     <main className="min-h-screen bg-[#f6faf7] px-4 py-4 text-[#17231d] sm:px-6 lg:px-8">
       <section className="mx-auto flex w-full max-w-5xl flex-col gap-5">
         <header className="jf-shell-header">
-          <Link
-            href="/"
-            className="jf-brand-link"
-          >
-            <div className="jf-brand-mark">
-              JF
-            </div>
+          <Link href="/" className="jf-brand-link">
+            <div className="jf-brand-mark">JF</div>
 
             <div>
-              <p className="text-lg font-black tracking-tight">
-                JobFray
-              </p>
-
+              <p className="text-lg font-black tracking-tight">JobFray</p>
               <p className="-mt-1 text-xs font-semibold text-[#5f6f67]">
                 Find local work
               </p>
@@ -130,44 +94,30 @@ export default async function JobsPage({
           </Link>
 
           <div className="jf-header-actions">
-            <Link
-              href="/"
-              className="jf-header-button"
-            >
+            <Link href="/" className="jf-header-button">
               Home
             </Link>
 
-            <Link
-              href="/post"
-              className="jf-header-button"
-            >
+            <Link href="/post" className="jf-header-button">
               Post Job
             </Link>
 
-            <Link
-              href="/worker/login"
-              className="jf-header-button-dark"
-            >
+            <Link href="/worker/login" className="jf-header-button-dark">
               Worker Login
             </Link>
           </div>
         </header>
 
         <section className="rounded-[2.25rem] border border-[#dbe7df] bg-white p-6 shadow-[0_20px_60px_rgba(24,48,39,0.08)] sm:p-8">
-          <div className="inline-flex rounded-full bg-[#eef8f2] px-4 py-2 text-sm font-black text-[#228454]">
-            Browse nearby jobs by ZIP code
-          </div>
-
-          <h1 className="mt-4 text-4xl font-black tracking-tight text-[#17231d] sm:text-5xl">
-            Find work near your ZIP code.
+          <h1 className="text-4xl font-black tracking-tight text-[#17231d] sm:text-5xl">
+            {zipPlace
+              ? `Showing jobs for ${formatZipPlace(zip)}.`
+              : "Find work near your ZIP code."}
           </h1>
 
           <p className="mt-3 max-w-2xl text-base font-semibold leading-7 text-[#5f6f67]">
-            Browse local jobs, side work,
-            labor gigs, and quick help
-            requests. Worker login is
-            required before contacting
-            posters.
+            Browse local jobs, side work, labor gigs, and quick help requests.
+            Worker login is required before contacting posters.
           </p>
 
           <form
@@ -188,17 +138,9 @@ export default async function JobsPage({
               defaultValue={radius}
               className="jf-search-input text-base font-black"
             >
-              <option value="5">
-                5 miles
-              </option>
-
-              <option value="10">
-                10 miles
-              </option>
-
-              <option value="20">
-                20 miles
-              </option>
+              <option value="5">5 miles</option>
+              <option value="10">10 miles</option>
+              <option value="20">20 miles</option>
             </select>
 
             <button
@@ -209,23 +151,11 @@ export default async function JobsPage({
             </button>
           </form>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            <span className="jf-soft-pill">
-              ZIP radius search
-            </span>
-
-            <span className="jf-soft-pill">
-              Public listings only
-            </span>
-
-            <span className="jf-soft-pill">
-              No poster fees
-            </span>
-
-            <span className="jf-soft-pill">
-              Local workers
-            </span>
-          </div>
+          {zip.length === 5 && !zipPlace ? (
+            <p className="mt-4 text-sm font-bold text-red-700">
+              Enter a supported ZIP code.
+            </p>
+          ) : null}
         </section>
 
         {zip.length !== 5 ? (
@@ -235,23 +165,19 @@ export default async function JobsPage({
             </h2>
 
             <p className="mt-2 text-base font-semibold text-[#5f6f67]">
-              Nearby listings will appear
-              here once a valid ZIP code is
-              entered.
+              Nearby listings will appear here once a supported ZIP code is entered.
             </p>
           </section>
         ) : null}
 
-        {zip.length === 5 &&
-        jobs.length === 0 ? (
+        {zip.length === 5 && zipPlace && jobs.length === 0 ? (
           <section className="rounded-[2rem] border border-[#dbe7df] bg-white p-6 text-center shadow-[0_20px_60px_rgba(24,48,39,0.08)]">
             <h2 className="text-2xl font-black">
-              No live jobs in {zip} yet.
+              No live jobs in {formatZipPlace(zip)} yet.
             </h2>
 
             <p className="mt-2 text-base font-semibold text-[#5f6f67]">
-              Try expanding your radius or
-              check nearby ZIP codes.
+              Try expanding your radius or check nearby ZIP codes.
             </p>
           </section>
         ) : null}
@@ -267,8 +193,7 @@ export default async function JobsPage({
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <p className="text-sm font-black uppercase tracking-[0.18em] text-[#228454]">
-                      {job.category?.name ??
-                        "Local Job"}
+                      {job.category?.name ?? "Local Job"}
                     </p>
 
                     <h2 className="mt-1 text-2xl font-black text-[#183027]">
@@ -278,31 +203,21 @@ export default async function JobsPage({
                     <p className="mt-2 line-clamp-2 text-base font-semibold leading-7 text-[#5f6f67]">
                       {job.description}
                     </p>
+
+                    <p className="mt-4 text-sm font-black text-[#183027]">
+                      {formatZipPlace(job.zip)}
+                    </p>
                   </div>
 
                   <div className="shrink-0 rounded-2xl bg-[#eef8f2] px-5 py-4 text-left sm:text-right">
                     <p className="text-2xl font-black text-[#183027]">
-                      {formatMoney(
-                        job.payAmountCents,
-                      )}
+                      {formatMoney(job.payAmountCents)}
                     </p>
 
                     <p className="mt-1 text-sm font-bold text-[#5f6f67]">
-                      {formatNeedBy(
-                        job.needBy,
-                      )}
+                      {formatNeedBy(job.needBy)}
                     </p>
                   </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <span className="jf-soft-pill">
-                    ZIP {job.zip}
-                  </span>
-
-                  <span className="jf-soft-pill">
-                    Public details only
-                  </span>
                 </div>
               </Link>
             ))}

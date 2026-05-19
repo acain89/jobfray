@@ -18,14 +18,12 @@ async function getCounts(): Promise<Counts> {
           status: "LIVE",
         },
       }),
-
       prisma.post.count({
         where: {
           type: "FREE_STUFF",
           status: "LIVE",
         },
       }),
-
       prisma.worker.count({
         where: {
           status: "ACTIVE",
@@ -46,11 +44,8 @@ function formatCount(value: number): string {
 }
 
 export default async function HomePage(): Promise<React.ReactElement> {
-  const {
-    activeJobCount,
-    freeStuffCount,
-    verifiedWorkerCount,
-  } = await getCounts();
+  const { activeJobCount, freeStuffCount, verifiedWorkerCount } =
+    await getCounts();
 
   return (
     <main className="min-h-screen px-4 py-4 text-[#17231d] sm:px-6 lg:px-8">
@@ -63,7 +58,6 @@ export default async function HomePage(): Promise<React.ReactElement> {
 
             <div>
               <p className="text-lg font-black tracking-tight">JobFray</p>
-
               <p className="-mt-1 text-xs font-semibold text-[#5f6f67]">
                 Local jobs, quick help, and free stuff
               </p>
@@ -79,10 +73,6 @@ export default async function HomePage(): Promise<React.ReactElement> {
         </header>
 
         <section className="rounded-[2.25rem] border border-[#dbe7df] bg-white p-6 shadow-sm sm:p-8 lg:p-10">
-          <div className="mb-5 inline-flex rounded-full bg-[#eef8f2] px-4 py-2 text-sm font-black text-[#228454]">
-            Post free. Browse local. Find help fast.
-          </div>
-
           <h1 className="max-w-4xl text-5xl font-black leading-[0.95] tracking-tight text-[#17231d] sm:text-6xl lg:text-7xl">
             Local jobs.
             <br />
@@ -124,17 +114,15 @@ export default async function HomePage(): Promise<React.ReactElement> {
                   ⌕
                 </div>
 
-                <span className="block text-2xl font-black">
-                  Find a Job
-                </span>
+                <span className="block text-2xl font-black">Find a Job</span>
 
                 <span className="mt-3 block text-base font-bold leading-6 text-[#d5ebdd]">
-                  Login required.
+                  Create an account to view local work.
                 </span>
               </Link>
 
               <p className="mt-4 text-center text-base font-semibold leading-7 text-[#17231d]">
-                Create your account and find local work.
+                Verified workers can browse and contact posters.
               </p>
             </div>
 
@@ -208,35 +196,26 @@ export default async function HomePage(): Promise<React.ReactElement> {
         </section>
 
         <section className="grid gap-3 rounded-[2rem] border border-[#dbe7df] bg-white p-5 shadow-sm sm:grid-cols-3">
-          {[
-            [
-              "100% Free to Post",
-              "No poster fees. No charges, ever.",
-            ],
+          <div className="rounded-[1.5rem] bg-[#f7fbf8] p-4">
+            <p className="font-black text-[#183027]">100% Free to Post</p>
+            <p className="mt-1 text-sm font-semibold leading-6 text-[#5f6f67]">
+              Post jobs and free stuff without poster fees.
+            </p>
+          </div>
 
-            [
-              "Free Stuff is Free",
-              "Post it, browse it, claim it. Always free.",
-            ],
+          <div className="rounded-[1.5rem] bg-[#f7fbf8] p-4">
+            <p className="font-black text-[#183027]">Photo-Based Listings</p>
+            <p className="mt-1 text-sm font-semibold leading-6 text-[#5f6f67]">
+              Every job and free listing requires at least one photo.
+            </p>
+          </div>
 
-            [
-              "Verified Workers",
-              "Workers create an account before contacting posters.",
-            ],
-          ].map(([title, text]) => (
-            <div
-              key={title}
-              className="rounded-[1.5rem] bg-[#f7fbf8] p-4"
-            >
-              <p className="font-black text-[#183027]">
-                {title}
-              </p>
-
-              <p className="mt-1 text-sm font-semibold leading-6 text-[#5f6f67]">
-                {text}
-              </p>
-            </div>
-          ))}
+          <div className="rounded-[1.5rem] bg-[#f7fbf8] p-4">
+            <p className="font-black text-[#183027]">Verified Workers</p>
+            <p className="mt-1 text-sm font-semibold leading-6 text-[#5f6f67]">
+              Workers must create an account and submit photo ID before contacting posters.
+            </p>
+          </div>
         </section>
 
         <footer className="pb-4 text-center text-xs font-semibold text-[#5f6f67]">

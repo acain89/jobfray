@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { formatZipPlace, getZipPlace, isValidZip } from "@/lib/zip-radius";
 
 type CreateResponse =
   | {
@@ -27,6 +28,8 @@ export default function FreeStuffPostForm(): React.ReactElement {
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const zipPlace = useMemo(() => getZipPlace(zip), [zip]);
+
   async function handlePhotoSelection(files: FileList | null): Promise<void> {
     setError("");
 
@@ -44,6 +47,7 @@ export default function FreeStuffPostForm(): React.ReactElement {
 
     setIsUploading(true);
     setPhotoNames(selectedFiles.map((file) => file.name));
+    setPhotoUrls([]);
 
     const formData = new FormData();
 
@@ -67,8 +71,8 @@ export default function FreeStuffPostForm(): React.ReactElement {
             error: string;
           };
 
-      if (!data.ok) {
-        setError(data.error);
+      if (!response.ok || !data.ok) {
+        setError(data.ok ? "Unable to upload images." : data.error);
         setPhotoUrls([]);
         return;
       }
@@ -84,6 +88,26 @@ export default function FreeStuffPostForm(): React.ReactElement {
 
   async function createListing(): Promise<void> {
     setError("");
+
+    if (!isValidZip(zip)) {
+      setError("Enter a supported ZIP code.");
+      return;
+    }
+
+    if (title.trim().length < 6) {
+      setError("Enter a title with at least 6 characters.");
+      return;
+    }
+
+    if (description.trim().length < 20) {
+      setError("Enter a description with at least 20 characters.");
+      return;
+    }
+
+    if (phone.replace(/\D/g, "").length < 10) {
+      setError("Enter a valid phone number.");
+      return;
+    }
 
     if (photoUrls.length === 0) {
       setError("At least 1 photo is required.");
@@ -105,8 +129,8 @@ export default function FreeStuffPostForm(): React.ReactElement {
         },
         body: JSON.stringify({
           zip,
-          title,
-          description,
+          title: title.trim(),
+          description: description.trim(),
           phone,
           photoUrls,
         }),
@@ -114,8 +138,8 @@ export default function FreeStuffPostForm(): React.ReactElement {
 
       const data = (await response.json()) as CreateResponse;
 
-      if (!data.ok) {
-        setError(data.error);
+      if (!response.ok || !data.ok) {
+        setError(data.ok ? "Unable to create listing." : data.error);
         return;
       }
 
@@ -135,11 +159,13 @@ export default function FreeStuffPostForm(): React.ReactElement {
       </p>
 
       <h1 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">
-        Post something free.
+        {zipPlace
+          ? `Post free stuff in ${formatZipPlace(zip)}.`
+          : "Got stuff to give away?"}
       </h1>
 
       <p className="mt-3 text-base font-semibold leading-7 text-[#5f6f67]">
-        Free to post. Listings automatically expire after 72 hours.
+        Free to post. Add at least one photo so people can see what is available.
       </p>
 
       {error ? (
@@ -160,6 +186,18 @@ export default function FreeStuffPostForm(): React.ReactElement {
             className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-bold outline-none focus:border-[#4f9f75]"
           />
 
+          {zip.length === 5 && !zipPlace ? (
+            <p className="text-sm font-bold text-red-700">
+              This ZIP code is not currently supported.
+            </p>
+          ) : null}
+
+          {zipPlace ? (
+            <p className="text-sm font-black text-[#183027]">
+              Posting for {formatZipPlace(zip)}.
+            </p>
+          ) : null}
+
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value.slice(0, 80))}
@@ -173,7 +211,7 @@ export default function FreeStuffPostForm(): React.ReactElement {
               setDescription(event.target.value.slice(0, 1000))
             }
             rows={5}
-            placeholder='Example: Free stuff on the curb on Pine St. First come, first served.'
+            placeholder="Example: Free couch on the curb. First come, first served."
             className="w-full resize-none rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-semibold leading-7 outline-none focus:border-[#4f9f75]"
           />
 
@@ -181,7 +219,7 @@ export default function FreeStuffPostForm(): React.ReactElement {
             value={phone}
             onChange={(event) => setPhone(event.target.value)}
             inputMode="tel"
-            placeholder="Phone number for delete link"
+            placeholder="Phone number for verification and delete link"
             className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-bold outline-none focus:border-[#4f9f75]"
           />
 
@@ -203,6 +241,24 @@ export default function FreeStuffPostForm(): React.ReactElement {
             />
           </label>
 
+          <label className="block cursor-pointer rounded-3xl border border-[#c9ddd1] bg-[#eef8f2] p-5 text-center transition hover:bg-[#e4f3ea]">
+            <span className="block text-base font-black text-[#183027]">
+              Open Camera
+            </span>
+
+            <span className="mt-1 block text-sm font-semibold text-[#5f6f67]">
+              Use this on mobile to take a photo now.
+            </span>
+
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(event) => void handlePhotoSelection(event.target.files)}
+              className="hidden"
+            />
+          </label>
+
           {photoNames.length > 0 ? (
             <div className="rounded-2xl bg-[#eef8f2] p-4">
               {photoNames.map((name) => (
@@ -212,7 +268,7 @@ export default function FreeStuffPostForm(): React.ReactElement {
               ))}
 
               <p className="mt-2 text-xs font-black uppercase tracking-[0.18em] text-[#5f6f67]">
-                {isUploading ? "Uploading..." : "Uploaded"}
+                {isUploading ? "Uploading..." : `${photoUrls.length} uploaded`}
               </p>
             </div>
           ) : null}
@@ -231,24 +287,23 @@ export default function FreeStuffPostForm(): React.ReactElement {
       {step === "done" ? (
         <div className="mt-6 rounded-3xl border border-[#cde7d8] bg-[#eef8f2] p-6">
           <p className="text-sm font-black uppercase tracking-[0.18em] text-[#228454]">
-            Listing Live
+            Listing Created
           </p>
 
           <h2 className="mt-2 text-3xl font-black text-[#183027]">
-            Your free listing is now live.
+            Verify your phone to publish the listing.
           </h2>
 
           <p className="mt-3 text-base font-semibold leading-7 text-[#5f6f67]">
-            Your listing will automatically expire after 72 hours. A delete link
-            has been sent to the phone number you entered.
+            A verification code has been sent to the phone number you entered.
           </p>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <a
-              href={`/free-stuff/${postId}`}
+              href={`/post/manage?postId=${postId}`}
               className="rounded-full bg-[#183027] px-5 py-4 text-center text-base font-black text-white"
             >
-              View Listing
+              Manage Listing
             </a>
 
             <a

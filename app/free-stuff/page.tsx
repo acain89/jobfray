@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { getNearbyZips } from "@/lib/zip-radius";
+import { formatZipPlace, getNearbyZips, getZipPlace } from "@/lib/zip-radius";
 
 export const dynamic = "force-dynamic";
 
@@ -16,64 +16,46 @@ export default async function FreeStuffPage({
 }: FreeStuffPageProps): Promise<React.ReactElement> {
   const params = await searchParams;
 
-  const zip =
-    params.zip
-      ?.replace(/\D/g, "")
-      .slice(0, 5) ?? "";
+  const zip = params.zip?.replace(/\D/g, "").slice(0, 5) ?? "";
+  const zipPlace = zip.length === 5 ? getZipPlace(zip) : null;
 
-  const radius = ["5", "10", "20"].includes(
-    params.radius ?? "",
-  )
+  const radius = ["5", "10", "20"].includes(params.radius ?? "")
     ? params.radius ?? "10"
     : "10";
 
-  const nearbyZips =
-    zip.length === 5
-      ? getNearbyZips(
-          zip,
-          Number(radius),
-        )
-      : [];
+  const nearbyZips = zipPlace ? getNearbyZips(zip, Number(radius)) : [];
 
-  const items =
-    zip.length === 5
-      ? await prisma.post.findMany({
-          where: {
-            type: "FREE_STUFF",
-            status: "LIVE",
-
-            zip: {
-              in: nearbyZips,
+  const items = zipPlace
+    ? await prisma.post.findMany({
+        where: {
+          type: "FREE_STUFF",
+          status: "LIVE",
+          zip: {
+            in: nearbyZips,
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: 20,
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          zip: true,
+          createdAt: true,
+          photos: {
+            orderBy: {
+              sortOrder: "asc",
+            },
+            take: 1,
+            select: {
+              url: true,
             },
           },
-
-          orderBy: {
-            createdAt: "desc",
-          },
-
-          take: 20,
-
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            zip: true,
-            createdAt: true,
-
-            photos: {
-              orderBy: {
-                sortOrder: "asc",
-              },
-
-              take: 1,
-
-              select: {
-                url: true,
-              },
-            },
-          },
-        })
-      : [];
+        },
+      })
+    : [];
 
   return (
     <main className="min-h-screen px-4 py-4 text-[#17231d] sm:px-6 lg:px-8">
@@ -85,10 +67,7 @@ export default async function FreeStuffPage({
             </div>
 
             <div>
-              <p className="text-lg font-black tracking-tight">
-                JobFray
-              </p>
-
+              <p className="text-lg font-black tracking-tight">JobFray</p>
               <p className="-mt-1 text-xs font-semibold text-[#5f6f67]">
                 Free local stuff
               </p>
@@ -113,12 +92,10 @@ export default async function FreeStuffPage({
         </header>
 
         <section className="rounded-[2.25rem] border border-[#dbe7df] bg-white p-6 shadow-sm sm:p-8">
-          <div className="inline-flex rounded-full bg-[#eef8f2] px-4 py-2 text-sm font-black text-[#228454]">
-            Browse free local items by ZIP code
-          </div>
-
-          <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">
-            Find free stuff near you.
+          <h1 className="text-4xl font-black tracking-tight sm:text-5xl">
+            {zipPlace
+              ? `Showing free stuff for ${formatZipPlace(zip)}.`
+              : "Find free stuff near you."}
           </h1>
 
           <p className="mt-3 max-w-2xl text-base font-semibold leading-7 text-[#5f6f67]">
@@ -157,19 +134,11 @@ export default async function FreeStuffPage({
             </button>
           </form>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            <span className="rounded-full bg-[#eef8f2] px-3 py-2 text-xs font-black text-[#183027]">
-              No login required
-            </span>
-
-            <span className="rounded-full bg-[#eef8f2] px-3 py-2 text-xs font-black text-[#183027]">
-              ZIP radius search
-            </span>
-
-            <span className="rounded-full bg-[#eef8f2] px-3 py-2 text-xs font-black text-[#183027]">
-              Always free
-            </span>
-          </div>
+          {zip.length === 5 && !zipPlace ? (
+            <p className="mt-4 text-sm font-bold text-red-700">
+              Enter a supported ZIP code.
+            </p>
+          ) : null}
         </section>
 
         {zip.length !== 5 ? (
@@ -179,20 +148,19 @@ export default async function FreeStuffPage({
             </h2>
 
             <p className="mt-2 text-base font-semibold text-[#5f6f67]">
-              Nearby free listings will appear here once a valid ZIP code is
-              entered.
+              Nearby free listings will appear here once a supported ZIP code is entered.
             </p>
           </section>
         ) : null}
 
-        {zip.length === 5 && items.length === 0 ? (
+        {zip.length === 5 && zipPlace && items.length === 0 ? (
           <section className="rounded-[2rem] border border-[#dbe7df] bg-white p-6 text-center shadow-sm">
             <h2 className="text-2xl font-black">
-              No free stuff in {zip} yet.
+              No free stuff in {formatZipPlace(zip)} yet.
             </h2>
 
             <p className="mt-2 text-base font-semibold text-[#5f6f67]">
-              Check nearby ZIP codes or post something free for others nearby.
+              Try expanding your radius or post something free for others nearby.
             </p>
           </section>
         ) : null}
@@ -233,15 +201,9 @@ export default async function FreeStuffPage({
                     {item.description}
                   </p>
 
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <span className="inline-flex rounded-full bg-[#eef8f2] px-3 py-2 text-xs font-black text-[#183027]">
-                      ZIP {item.zip}
-                    </span>
-
-                    <span className="inline-flex rounded-full bg-[#eef8f2] px-3 py-2 text-xs font-black text-[#183027]">
-                      Free pickup
-                    </span>
-                  </div>
+                  <p className="mt-4 text-sm font-black text-[#183027]">
+                    {formatZipPlace(item.zip)}
+                  </p>
                 </div>
               </Link>
             ))}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { formatZipPlace, getZipPlace, isValidZip } from "@/lib/zip-radius";
 
 type Category = {
   id: string;
@@ -13,12 +14,7 @@ type Props = {
   categories: Category[];
 };
 
-type NeedBy =
-  | "ASAP"
-  | "TODAY"
-  | "TOMORROW"
-  | "THIS_WEEK"
-  | "FLEXIBLE";
+type NeedBy = "ASAP" | "TODAY" | "TOMORROW" | "THIS_WEEK" | "FLEXIBLE";
 
 type UploadResponse =
   | {
@@ -52,10 +48,7 @@ type VerifyPostResponse =
       error: string;
     };
 
-const needByOptions: {
-  value: NeedBy;
-  label: string;
-}[] = [
+const needByOptions: { value: NeedBy; label: string }[] = [
   { value: "ASAP", label: "ASAP" },
   { value: "TODAY", label: "Today" },
   { value: "TOMORROW", label: "Tomorrow" },
@@ -86,15 +79,10 @@ function formatPayInput(value: string): string {
     return cleaned.slice(0, 6);
   }
 
-  return `${parts[0].slice(0, 6)}.${parts
-    .slice(1)
-    .join("")
-    .slice(0, 2)}`;
+  return `${parts[0].slice(0, 6)}.${parts.slice(1).join("").slice(0, 2)}`;
 }
 
-export default function PostWizard({
-  categories,
-}: Props): React.ReactElement {
+export default function PostWizard({ categories }: Props): React.ReactElement {
   const [step, setStep] = useState(0);
   const [zip, setZip] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -118,13 +106,12 @@ export default function PostWizard({
     return categories.find((category) => category.id === categoryId);
   }, [categories, categoryId]);
 
-  const cleanedPhone = useMemo(() => {
-    return formatPhone(phone);
-  }, [phone]);
+  const cleanedPhone = useMemo(() => formatPhone(phone), [phone]);
+  const zipPlace = useMemo(() => getZipPlace(zip), [zip]);
 
   const canContinue = useMemo(() => {
     if (step === 0) {
-      return /^\d{5}$/.test(zip);
+      return /^\d{5}$/.test(zip) && isValidZip(zip);
     }
 
     if (step === 1) {
@@ -132,28 +119,19 @@ export default function PostWizard({
     }
 
     if (step === 2) {
-      return (
-        title.trim().length >= 6 &&
-        description.trim().length >= 20
-      );
+      return title.trim().length >= 6 && description.trim().length >= 20;
     }
 
     if (step === 3) {
-      return (
-        needBy.length > 0 &&
-        dollarsToCents(payAmount) >= 100
-      );
+      return needBy.length > 0 && dollarsToCents(payAmount) >= 100;
     }
 
     if (step === 4) {
-      return (
-        exactAddress.trim().length >= 5 &&
-        cleanedPhone.length === 10
-      );
+      return exactAddress.trim().length >= 5 && cleanedPhone.length === 10;
     }
 
     if (step === 5) {
-      return !isUploading;
+      return !isUploading && photoUrls.length >= 1;
     }
 
     return true;
@@ -165,7 +143,7 @@ export default function PostWizard({
     isUploading,
     needBy,
     payAmount,
-    phone,
+    photoUrls.length,
     step,
     title,
     zip,
@@ -175,6 +153,16 @@ export default function PostWizard({
     setError("");
 
     if (!canContinue) {
+      if (step === 0) {
+        setError("Enter a supported ZIP code.");
+        return;
+      }
+
+      if (step === 5) {
+        setError("At least 1 photo is required.");
+        return;
+      }
+
       setError("Finish this step before continuing.");
       return;
     }
@@ -187,9 +175,7 @@ export default function PostWizard({
     setStep((current) => Math.max(current - 1, 0));
   }
 
-  async function handlePhotoSelection(
-    files: FileList | null,
-  ): Promise<void> {
+  async function handlePhotoSelection(files: FileList | null): Promise<void> {
     setError("");
 
     if (!files || files.length === 0) {
@@ -233,6 +219,11 @@ export default function PostWizard({
 
   async function createPost(): Promise<void> {
     if (isSubmitting || isUploading) {
+      return;
+    }
+
+    if (photoUrls.length < 1) {
+      setError("At least 1 photo is required.");
       return;
     }
 
@@ -325,21 +316,18 @@ export default function PostWizard({
         </p>
 
         <h1 className="mt-1 text-4xl font-black tracking-tight text-[#17231d] sm:text-5xl">
-          Tell locals what you need done.
+          {zipPlace ? `Post a job in ${formatZipPlace(zip)}.` : "Tell locals what you need done."}
         </h1>
 
         <p className="mt-3 text-base font-semibold leading-7 text-[#5f6f67]">
-          Free to post. Your phone and exact address stay private until
-          you choose a worker.
+          Free to post. Your phone and exact address stay private until you choose a worker.
         </p>
       </div>
 
       <div className="mb-6 h-3 overflow-hidden rounded-full bg-[#eef8f2]">
         <div
           className="h-full rounded-full bg-[#afe1c6] transition-all"
-          style={{
-            width: `${((step + 1) / 7) * 100}%`,
-          }}
+          style={{ width: `${((step + 1) / 7) * 100}%` }}
         />
       </div>
 
@@ -351,34 +339,37 @@ export default function PostWizard({
 
       {step === 0 ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">
-            Where is the job?
-          </h2>
+          <h2 className="text-2xl font-black">Where is the job?</h2>
 
           <input
             value={zip}
-            onChange={(event) =>
-              setZip(
-                event.target.value.replace(/\D/g, "").slice(0, 5),
-              )
-            }
+            onChange={(event) => setZip(event.target.value.replace(/\D/g, "").slice(0, 5))}
             inputMode="numeric"
             placeholder="ZIP code"
             className="jf-search-input text-xl font-black"
           />
 
-          <p className="text-sm font-semibold leading-6 text-[#5f6f67]">
-            Workers browse by ZIP and radius. Your exact address is not
-            public.
-          </p>
+          {zip.length === 5 && !zipPlace ? (
+            <p className="text-sm font-bold text-red-700">
+              This ZIP code is not currently supported.
+            </p>
+          ) : null}
+
+          {zipPlace ? (
+            <p className="text-sm font-black text-[#183027]">
+              Posting for {formatZipPlace(zip)}.
+            </p>
+          ) : (
+            <p className="text-sm font-semibold leading-6 text-[#5f6f67]">
+              Workers browse by ZIP and radius. Your exact address is not public.
+            </p>
+          )}
         </div>
       ) : null}
 
       {step === 1 ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">
-            Choose a category
-          </h2>
+          <h2 className="text-2xl font-black">Choose a category</h2>
 
           <div className="grid gap-3 sm:grid-cols-2">
             {categories.map((category) => (
@@ -409,40 +400,28 @@ export default function PostWizard({
 
       {step === 2 ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">
-            Describe the job
-          </h2>
+          <h2 className="text-2xl font-black">Describe the job</h2>
 
           <input
             value={title}
-            onChange={(event) =>
-              setTitle(event.target.value.slice(0, 80))
-            }
+            onChange={(event) => setTitle(event.target.value.slice(0, 80))}
             placeholder="Example: Need lawn mowed"
             className="jf-search-input text-base font-bold"
           />
 
           <textarea
             value={description}
-            onChange={(event) =>
-              setDescription(event.target.value.slice(0, 1000))
-            }
+            onChange={(event) => setDescription(event.target.value.slice(0, 1000))}
             placeholder="Add the details workers need to know..."
             rows={6}
             className="w-full resize-none rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-base font-semibold leading-7 outline-none focus:border-[#4f9f75]"
           />
-
-          <p className="text-sm font-semibold leading-6 text-[#5f6f67]">
-            Clear details help workers price the job accurately.
-          </p>
         </div>
       ) : null}
 
       {step === 3 ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">
-            Timing and pay
-          </h2>
+          <h2 className="text-2xl font-black">Timing and pay</h2>
 
           <div className="grid gap-3 sm:grid-cols-2">
             {needByOptions.map((option) => (
@@ -468,9 +447,7 @@ export default function PostWizard({
 
             <input
               value={payAmount}
-              onChange={(event) =>
-                setPayAmount(formatPayInput(event.target.value))
-              }
+              onChange={(event) => setPayAmount(formatPayInput(event.target.value))}
               inputMode="decimal"
               placeholder="Example: 75"
               className="jf-search-input text-lg font-black"
@@ -485,15 +462,11 @@ export default function PostWizard({
 
       {step === 4 ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">
-            Private contact details
-          </h2>
+          <h2 className="text-2xl font-black">Private contact details</h2>
 
           <input
             value={exactAddress}
-            onChange={(event) =>
-              setExactAddress(event.target.value.slice(0, 200))
-            }
+            onChange={(event) => setExactAddress(event.target.value.slice(0, 200))}
             placeholder="Exact address"
             autoComplete="street-address"
             className="jf-search-input text-base font-bold"
@@ -509,35 +482,29 @@ export default function PostWizard({
           />
 
           <p className="text-sm font-semibold leading-6 text-[#5f6f67]">
-            JobFray uses your phone to verify the post. Workers do not
-            see your phone or exact address unless you connect with them.
+            JobFray uses your phone to verify the post. Workers do not see your phone or exact address unless you connect with them.
           </p>
         </div>
       ) : null}
 
       {step === 5 ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">
-            Add photos
-          </h2>
+          <h2 className="text-2xl font-black">Add photos</h2>
 
           <label className="block cursor-pointer rounded-3xl border border-dashed border-[#c9ddd1] bg-[#f7fbf8] p-6 text-center transition hover:bg-[#eef8f2]">
             <span className="block text-lg font-black text-[#183027]">
-              Choose or take up to 3 photos
+              Choose or take 1–3 photos
             </span>
 
             <span className="mt-2 block text-sm font-semibold text-[#5f6f67]">
-              Photos help workers understand the job before making an
-              offer.
+              At least 1 photo is required so workers can understand the job.
             </span>
 
             <input
               type="file"
               accept="image/*"
               multiple
-              onChange={(event) =>
-                void handlePhotoSelection(event.target.files)
-              }
+              onChange={(event) => void handlePhotoSelection(event.target.files)}
               className="hidden"
             />
           </label>
@@ -555,9 +522,7 @@ export default function PostWizard({
               type="file"
               accept="image/*"
               capture="environment"
-              onChange={(event) =>
-                void handlePhotoSelection(event.target.files)
-              }
+              onChange={(event) => void handlePhotoSelection(event.target.files)}
               className="hidden"
             />
           </label>
@@ -571,36 +536,29 @@ export default function PostWizard({
           {photoNames.length > 0 ? (
             <div className="rounded-2xl bg-[#eef8f2] p-4">
               {photoNames.map((name) => (
-                <p
-                  key={name}
-                  className="text-sm font-bold text-[#183027]"
-                >
+                <p key={name} className="text-sm font-bold text-[#183027]">
                   {name}
                 </p>
               ))}
+
+              <p className="mt-2 text-xs font-black uppercase tracking-[0.18em] text-[#5f6f67]">
+                {isUploading ? "Uploading..." : `${photoUrls.length} uploaded`}
+              </p>
             </div>
           ) : null}
-
-          <p className="text-sm font-semibold leading-6 text-[#5f6f67]">
-            Photos are optional, but strongly recommended.
-          </p>
         </div>
       ) : null}
 
       {step === 6 && !createdPostId ? (
         <div className="space-y-5">
-          <h2 className="text-2xl font-black">
-            Review your post
-          </h2>
+          <h2 className="text-2xl font-black">Review your post</h2>
 
           <div className="rounded-3xl bg-[#f7fbf8] p-5">
             <p className="text-sm font-black uppercase tracking-[0.18em] text-[#228454]">
               {selectedCategory?.name ?? "Category"}
             </p>
 
-            <h3 className="mt-2 text-2xl font-black">
-              {title}
-            </h3>
+            <h3 className="mt-2 text-2xl font-black">{title}</h3>
 
             <p className="mt-2 text-base font-semibold leading-7 text-[#5f6f67]">
               {description}
@@ -608,28 +566,18 @@ export default function PostWizard({
 
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <div className="rounded-2xl bg-white p-4">
-                <p className="text-xs font-black uppercase text-[#5f6f67]">
-                  ZIP
-                </p>
-                <p className="font-black">{zip}</p>
+                <p className="text-xs font-black uppercase text-[#5f6f67]">Location</p>
+                <p className="font-black">{formatZipPlace(zip)}</p>
               </div>
 
               <div className="rounded-2xl bg-white p-4">
-                <p className="text-xs font-black uppercase text-[#5f6f67]">
-                  Pay
-                </p>
-                <p className="font-black">
-                  ${payAmount}
-                </p>
+                <p className="text-xs font-black uppercase text-[#5f6f67]">Pay</p>
+                <p className="font-black">${payAmount}</p>
               </div>
 
               <div className="rounded-2xl bg-white p-4">
-                <p className="text-xs font-black uppercase text-[#5f6f67]">
-                  Photos
-                </p>
-                <p className="font-black">
-                  {photoUrls.length}
-                </p>
+                <p className="text-xs font-black uppercase text-[#5f6f67]">Photos</p>
+                <p className="font-black">{photoUrls.length}</p>
               </div>
             </div>
           </div>
@@ -638,9 +586,7 @@ export default function PostWizard({
 
       {step === 6 && createdPostId ? (
         <div className="space-y-4">
-          <h2 className="text-2xl font-black">
-            Verify your phone
-          </h2>
+          <h2 className="text-2xl font-black">Verify your phone</h2>
 
           <p className="text-base font-semibold leading-7 text-[#5f6f67]">
             Enter the 6-digit code sent to your phone.
@@ -648,11 +594,7 @@ export default function PostWizard({
 
           <input
             value={verificationCode}
-            onChange={(event) =>
-              setVerificationCode(
-                event.target.value.replace(/\D/g, "").slice(0, 6),
-              )
-            }
+            onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
             inputMode="numeric"
             placeholder="6-digit code"
             className="w-full rounded-2xl border border-[#dbe7df] bg-[#f7fbf8] px-4 py-4 text-xl font-black tracking-[0.3em] outline-none focus:border-[#4f9f75]"
@@ -697,9 +639,7 @@ export default function PostWizard({
           <button
             type="button"
             onClick={() => void verifyPost()}
-            disabled={
-              isSubmitting || verificationCode.length !== 6
-            }
+            disabled={isSubmitting || verificationCode.length !== 6}
             className="flex-1 rounded-full bg-[#183027] px-5 py-4 text-base font-black text-white transition hover:bg-[#244638] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? "Verifying..." : "Verify & Go Live"}
