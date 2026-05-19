@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { formatZipPlace, getZipPlace, isValidZip } from "@/lib/zip-radius";
 
 type ApiResponse =
   | {
@@ -28,11 +29,8 @@ export default function WorkerSignupForm({
   const [password, setPassword] = useState("");
 
   const [error, setError] = useState("");
-  const [successMessage, setSuccessMessage] =
-    useState("");
-
-  const [isSubmitting, setIsSubmitting] =
-    useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const cleanedPhone = useMemo(() => {
     return phone.replace(/\D/g, "").slice(0, 10);
@@ -46,34 +44,26 @@ export default function WorkerSignupForm({
     }
 
     if (digits.length <= 6) {
-      return `(${digits.slice(
-        0,
-        3,
-      )}) ${digits.slice(3)}`;
+      return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
     }
 
-    return `(${digits.slice(
-      0,
-      3,
-    )}) ${digits.slice(
-      3,
-      6,
-    )}-${digits.slice(6)}`;
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   }, [cleanedPhone]);
 
   const normalizedUsername = useMemo(() => {
-    return username
-      .trim()
-      .replace(/[^a-z0-9_]/g, "")
-      .toLowerCase();
+    return username.trim().replace(/[^a-z0-9_]/g, "").toLowerCase();
   }, [username]);
+
+  const zipPlace = useMemo(() => {
+    return getZipPlace(homeZip);
+  }, [homeZip]);
 
   const canSubmit =
     firstName.trim().length >= 2 &&
     lastInitial.trim().length === 1 &&
     normalizedUsername.length >= 3 &&
     cleanedPhone.length === 10 &&
-    homeZip.length === 5 &&
+    isValidZip(homeZip) &&
     password.length >= 6;
 
   async function handleSubmit(
@@ -86,10 +76,12 @@ export default function WorkerSignupForm({
     }
 
     if (!canSubmit) {
-      setError(
-        "Please complete all required fields.",
-      );
+      if (homeZip.length === 5 && !isValidZip(homeZip)) {
+        setError("Enter a supported ZIP code.");
+        return;
+      }
 
+      setError("Please complete all required fields.");
       return;
     }
 
@@ -98,52 +90,32 @@ export default function WorkerSignupForm({
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(
-        "/api/worker/signup",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-
-          body: JSON.stringify({
-            firstName: firstName.trim(),
-            lastInitial:
-              lastInitial.trim(),
-            username:
-              normalizedUsername,
-            phone: cleanedPhone,
-            homeZip,
-            password,
-          }),
+      const response = await fetch("/api/worker/signup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          firstName: firstName.trim(),
+          lastInitial: lastInitial.trim(),
+          username: normalizedUsername,
+          phone: cleanedPhone,
+          homeZip,
+          password,
+        }),
+      });
 
-      const data =
-        (await response.json()) as ApiResponse;
+      const data = (await response.json()) as ApiResponse;
 
       if (!response.ok || !data.ok) {
-        setError(
-          data.ok
-            ? "Unable to create worker account."
-            : data.error,
-        );
-
+        setError(data.ok ? "Unable to create worker account." : data.error);
         return;
       }
 
-      setSuccessMessage(
-        "Account created successfully.",
-      );
-
-      window.location.href =
-        nextPath || "/worker/dashboard";
+      setSuccessMessage("Account created successfully.");
+      window.location.href = nextPath || "/worker/dashboard";
     } catch {
-      setError(
-        "Unable to create worker account.",
-      );
+      setError("Unable to create worker account.");
     } finally {
       setIsSubmitting(false);
     }
@@ -156,12 +128,12 @@ export default function WorkerSignupForm({
     >
       <div className="mb-6">
         <h2 className="text-2xl font-black text-[#183027]">
-          Create Worker Account
+          Worker details
         </h2>
 
-        <p className="mt-2 text-sm font-medium text-[#5f6f67]">
-          Browse local jobs, send offers,
-          and build your reputation.
+        <p className="mt-2 text-sm font-semibold leading-6 text-[#5f6f67]">
+          Workers must create an account and complete photo ID verification
+          before contacting posters.
         </p>
       </div>
 
@@ -185,11 +157,7 @@ export default function WorkerSignupForm({
 
           <input
             value={firstName}
-            onChange={(event) =>
-              setFirstName(
-                event.target.value,
-              )
-            }
+            onChange={(event) => setFirstName(event.target.value)}
             placeholder="John"
             autoComplete="given-name"
             className="jf-search-input"
@@ -206,10 +174,7 @@ export default function WorkerSignupForm({
             onChange={(event) => {
               setLastInitial(
                 event.target.value
-                  .replace(
-                    /[^a-zA-Z]/g,
-                    "",
-                  )
+                  .replace(/[^a-zA-Z]/g, "")
                   .slice(0, 1)
                   .toUpperCase(),
               );
@@ -227,11 +192,7 @@ export default function WorkerSignupForm({
 
           <input
             value={username}
-            onChange={(event) => {
-              setUsername(
-                event.target.value,
-              );
-            }}
+            onChange={(event) => setUsername(event.target.value)}
             placeholder="handymanmike"
             autoCapitalize="none"
             autoCorrect="off"
@@ -240,8 +201,7 @@ export default function WorkerSignupForm({
           />
 
           <p className="mt-2 text-xs font-semibold text-[#5f6f67]">
-            Lowercase letters, numbers,
-            and underscores only.
+            Lowercase letters, numbers, and underscores only.
           </p>
         </div>
 
@@ -252,11 +212,7 @@ export default function WorkerSignupForm({
 
           <input
             value={formattedPhone}
-            onChange={(event) => {
-              setPhone(
-                event.target.value,
-              );
-            }}
+            onChange={(event) => setPhone(event.target.value)}
             inputMode="tel"
             placeholder="(555) 555-5555"
             autoComplete="tel"
@@ -264,8 +220,7 @@ export default function WorkerSignupForm({
           />
 
           <p className="mt-2 text-xs font-semibold text-[#5f6f67]">
-            Verification code will be sent
-            by text message.
+            A verification code will be sent by text message.
           </p>
         </div>
 
@@ -277,16 +232,24 @@ export default function WorkerSignupForm({
           <input
             value={homeZip}
             onChange={(event) => {
-              setHomeZip(
-                event.target.value
-                  .replace(/\D/g, "")
-                  .slice(0, 5),
-              );
+              setHomeZip(event.target.value.replace(/\D/g, "").slice(0, 5));
             }}
             inputMode="numeric"
-            placeholder="77002"
+            placeholder="77575"
             className="jf-search-input"
           />
+
+          {homeZip.length === 5 && !zipPlace ? (
+            <p className="mt-2 text-xs font-bold text-red-700">
+              This ZIP code is not currently supported.
+            </p>
+          ) : null}
+
+          {zipPlace ? (
+            <p className="mt-2 text-xs font-black text-[#183027]">
+              Home area: {formatZipPlace(homeZip)}
+            </p>
+          ) : null}
         </div>
 
         <div>
@@ -296,11 +259,7 @@ export default function WorkerSignupForm({
 
           <input
             value={password}
-            onChange={(event) =>
-              setPassword(
-                event.target.value,
-              )
-            }
+            onChange={(event) => setPassword(event.target.value)}
             type="password"
             placeholder="Minimum 6 characters"
             autoComplete="new-password"
@@ -315,30 +274,13 @@ export default function WorkerSignupForm({
 
       <div className="mt-6 rounded-[1.5rem] border border-[#dbe7df] bg-[#eef8f2] p-4">
         <p className="text-sm font-black text-[#183027]">
-          Worker setup includes:
+          After signup, finish verification to unlock poster contact options.
         </p>
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          <span className="jf-soft-pill">
-            Worker dashboard
-          </span>
-
-          <span className="jf-soft-pill">
-            Job offers
-          </span>
-
-          <span className="jf-soft-pill">
-            ID verification
-          </span>
-
-          <span className="jf-soft-pill">
-            Local job access
-          </span>
-
-          <span className="jf-soft-pill">
-            Verified profile
-          </span>
-        </div>
+        <p className="mt-2 text-sm font-semibold leading-6 text-[#5f6f67]">
+          JobFray uses account, phone, billing, and photo ID checks to keep
+          worker access controlled.
+        </p>
       </div>
 
       <button
@@ -346,20 +288,14 @@ export default function WorkerSignupForm({
         disabled={!canSubmit || isSubmitting}
         className="mt-6 flex h-[58px] w-full items-center justify-center rounded-full bg-[#183027] px-5 text-base font-black text-white transition-all duration-200 hover:-translate-y-[1px] hover:bg-[#244638] disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {isSubmitting
-          ? "Creating account..."
-          : "Create Worker Account"}
+        {isSubmitting ? "Creating account..." : "Create Worker Account"}
       </button>
 
       <div className="mt-5 flex items-center justify-center gap-2 text-center text-sm font-semibold text-[#5f6f67]">
-        <span>
-          Already have an account?
-        </span>
+        <span>Already have an account?</span>
 
         <Link
-          href={`/worker/login?next=${encodeURIComponent(
-            nextPath,
-          )}`}
+          href={`/worker/login?next=${encodeURIComponent(nextPath)}`}
           className="font-black text-[#183027] underline underline-offset-4"
         >
           Log in
