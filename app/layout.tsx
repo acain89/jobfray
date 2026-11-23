@@ -1,44 +1,31 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
+import { SiteFooter, SiteHeader } from "@/components/SiteShell";
+import { siteOrigin } from "@/lib/site";
 import "./globals.css";
-
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    "https://www.jobfray.com",
-  ),
-
-  title:
-    "JobFray | Local jobs, quick help, and free stuff",
-
+  metadataBase: new URL(siteOrigin),
+  title: {
+    default: "JobFray | Service businesses, connected",
+    template: "%s | JobFray",
+  },
   description:
-    "Post local jobs, find quick work, and browse free stuff by ZIP code.",
-
-  openGraph: {
-    title:
-      "JobFray | Local jobs, quick help, and free stuff",
-
-    description:
-      "Post local jobs, find quick work, and browse free stuff by ZIP code.",
-
-    url: "https://www.jobfray.com",
-
-    siteName: "JobFray",
-
-    type: "website",
-  },
-
-  robots: {
-    index: true,
-    follow: true,
-  },
+    "A new home for service-business websites, local discovery, quote requests and appointments.",
+  robots: { index: false, follow: false },
 };
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>): React.ReactElement {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <a className="skip-link" href="#main">
+          Skip to content
+        </a>
+        <SiteHeader />
+        <main id="main" className="container main-content">
+          {children}
+        </main>
+        <SiteFooter />
+      </body>
     </html>
   );
 }

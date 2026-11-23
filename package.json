@@ -1,46 +1,36 @@
 {
   "name": "jobfray",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "test": "node --import tsx --test tests/domain.test.ts tests/schema-compatibility.test.ts",
+    "schema:validate": "prisma validate",
+    "schema:proposal": "prisma validate --schema prisma/proposals/rebuild.prisma",
+    "db:generate": "prisma generate",
+    "test:http": "node scripts/http-smoke.mjs"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "^7.8.0",
-    "@prisma/client": "^7.8.0",
-    "@stripe/react-stripe-js": "^6.3.0",
-    "@stripe/stripe-js": "^9.5.0",
-    "@tailwindcss/postcss": "^4.3.0",
-    "@types/jsonwebtoken": "^9.0.10",
-    "bcryptjs": "^3.0.3",
-    "cloudinary": "^2.10.0",
-    "jsonwebtoken": "^9.0.3",
-    "mapbox-gl": "^3.23.1",
-    "next": "16.2.6",
-    "pg": "^8.20.0",
-    "prisma": "^7.8.0",
+    "@prisma/client": "5.22.0",
+    "next": "16.4.6",
     "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "stripe": "^22.1.1",
-    "twilio": "^6.0.2",
-    "zod": "^4.4.3"
+    "react-dom": "19.2.4"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^20",
-    "@types/pg": "^8.20.0",
+    "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.6",
-    "tailwindcss": "^4.3.0",
+    "eslint-config-next": "16.4.6",
+    "prisma": "5.22.0",
     "tsx": "^4.22.0",
-    "typescript": "^5"
+    "typescript": "5.9.3"
   }
 }
