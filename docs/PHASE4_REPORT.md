@@ -3,7 +3,8 @@
 Date: 2026-11-24. Worktree: `C:/Users/acain/.codex/worktrees/jobfray-rebuild`.
 Branch: `feat/jobfray-rebuild`.
 Baseline: `06d0bc4e8197af541038fb3c5507993d67120b87`.
-Implementation commit: `40a1f60d6934dacd831a12fcc7cdff0fe0f24d99`.
+Hardening commit: `40a1f60d6934dacd831a12fcc7cdff0fe0f24d99`.
+Final verified source commit: `020ae06f6b4503738b113fad2f6ade6c32546d17`.
 This report is recorded by a following documentation-only commit; its SHA is the
 final branch HEAD and is supplied in the completion response.
 
@@ -92,7 +93,8 @@ compound tenant references, immutable history and restricted-role application wr
 were executed. No production grants, backup storage, encryption or live migration
 compatibility was verified.
 
-The test cluster was stopped after verification. Synthetic cluster files, backups and
+The test cluster was stopped after verification. The main synthetic database occupies
+about 1,601 MB, including retained load-test schemas from multiple runs. Synthetic cluster files, backups and
 logs are retained under ignored artifacts for review; they were not committed.
 
 ## Concurrency, interruption and measured performance
@@ -244,12 +246,15 @@ Render, DNS, push, merge or deployment was operated. No destructive Git operatio
 historical migration rewrite occurred. The isolated cluster is stopped and retained.
 
 - Baseline: `06d0bc4e8197af541038fb3c5507993d67120b87`.
-- Verified implementation: `40a1f60d6934dacd831a12fcc7cdff0fe0f24d99`.
+- Main hardening implementation: `40a1f60d6934dacd831a12fcc7cdff0fe0f24d99`.
+- Initial report: `1dc8218c7c522f0b4a723b7ccac0f67bec87a38f`.
+- Verified canonical redirect fix: `020ae06f6b4503738b113fad2f6ade6c32546d17`. The final status check caught
+  this already-tested change unstaged; this follow-up commits it without rewriting history.
 - Following report-only commit: final HEAD, recorded in the completion response.
 
 ## Changed-file inventory
 
-55 files relative to the Phase 4 baseline, including this report. Generated
+56 files relative to the Phase 4 baseline, including this report. Generated
 clients/builds, synthetic data, keys, raw logs and backups are ignored and excluded.
 
 - `.env.example`
@@ -295,6 +300,7 @@ clients/builds, synthetic data, keys, raw logs and backups are ignored and exclu
 - `prisma/migrations/20261124000200_persistence_hardening/migration.sql`
 - `prisma/proposals/rebuild.prisma`
 - `prisma/schema.prisma`
+- `proxy.ts`
 - `scripts/phase3-smoke.mjs`
 - `scripts/phase4-directory-benchmark.ts`
 - `scripts/phase4-directory-load.sql`
