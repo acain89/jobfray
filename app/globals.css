@@ -406,3 +406,5 @@ input[type="checkbox"] { width: 20px; min-height: 20px; height: 20px; flex-shrin
 @media (min-width: 700px) { .form-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .metrics { grid-template-columns: repeat(3,minmax(0,1fr)); } .hours-row { grid-template-columns: 1fr 1fr 1fr; align-items: end; } .hours-row > .check { grid-column: auto; } }
 @media (min-width: 1000px) { .builder-layout { grid-template-columns: minmax(280px,.85fr) minmax(0,1.35fr); } .preview-panel { position: sticky; top: 1rem; max-height: 85vh; overflow-y: auto; } }
 @media print { .site-header,.site-footer,.dashboard-heading,.dashboard-tabs,.sandbox-banner,button,.actions,.save-state { display: none !important; } .main-content { padding: 0; } .dashboard > section > :not(.print-card) { display: none !important; } .print-card,.confirmation-card { border: none; max-width: 100%; break-inside: avoid; } .confirmation-card a { color: black; text-decoration: none; } }
+
+.request-fields {border:0;padding:0;min-width:0;}

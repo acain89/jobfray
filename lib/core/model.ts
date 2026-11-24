@@ -57,6 +57,7 @@ export interface Business {
     zip: string;
     latitude: number;
     longitude: number;
+    discoveryPoint?: {latitude:number;longitude:number};
     timeZone: string;
     modes: BusinessMode[];
     directory: boolean;
@@ -160,6 +161,7 @@ export interface RequestRecord {
     idempotencyKey: string;
     payloadHash: string;
     paymentIntentId: string | null;
+    settledPaymentId?: string;
     status: RequestStatus;
     payment: "CREATED" | "SUCCEEDED" | "REFUND_REQUIRED" | "REFUNDED";
     start: string | null;
@@ -168,6 +170,7 @@ export interface RequestRecord {
     contact: Contact;
     photos: string[];
     confirmationHash: string;
+    confirmationKeyVersion?: string;
     reference: string;
     offeringName: string;
     businessName: string;
@@ -220,6 +223,7 @@ export interface Outbox {
     attempts: number;
     availableAt: string;
     leaseUntil: string | null;
+    leaseToken?: string;
 }
 export interface Media {
     id: string;

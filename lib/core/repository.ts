@@ -4,9 +4,24 @@ import { randomUUID } from "node:crypto";
 import type { Table, Tables } from "./model";
 import { storedDocument } from "./documents";
 import { AppError } from "./validation";
+export interface QueryOptions {
+    limit?: number;
+    containsPhoto?: string;
+    orderBy?: "createdAt";
+    afterValue?: string;
+    oneOf?: {field:string; values:readonly string[]};
+    afterId?: string | undefined;
+    ranges?: { field: string; operator: "lt" | "lte" | "gt" | "gte" | "ne" | "notNull"; value?: string }[];
+}
+export function queryLimit(options?: QueryOptions) {
+    const limit = options?.limit ?? 10000;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 10000) throw new AppError("Invalid query limit");
+    return limit;
+}
 export interface Transaction {
+    count<K extends Table>(table:K,filter:Partial<Tables[K]>):Promise<number>;
     get<K extends Table>(table: K, id: string): Promise<Tables[K] | null>;
-    find<K extends Table>(table: K, filter: Partial<Tables[K]>): Promise<Tables[K][]>;
+    find<K extends Table>(table: K, filter: Partial<Tables[K]>, options?: QueryOptions): Promise<Tables[K][]>;
     put<K extends Table>(table: K, row: Tables[K]): Promise<void>;
     remove<K extends Table>(table: K, id: string): Promise<void>;
 }
@@ -20,8 +35,26 @@ export const TABLES: Table[] = ["accounts", "sessions", "tokens", "businesses", 
 function empty(): State { return Object.fromEntries(TABLES.map(t => [t, {}])) as State; }
 function transactionFor(state: State): Transaction {
     return {
+        async count(table,filter) {return Object.values(state[table]).filter(row=>Object.entries(filter).every(([key,value])=>(row as unknown as Record<string,unknown>)[key]===value)).length;},
         async get(table, id) { return state[table][id] ? storedDocument(table, structuredClone(state[table][id])) : null; },
-        async find(table, filter) { return Object.values(state[table]).filter(row => Object.entries(filter).every(([k, v]) => (row as unknown as Record<string, unknown>)[k] === v)).map(row => storedDocument(table, structuredClone(row))); },
+        async find(table, filter, options) {
+            const limit = queryLimit(options);
+            const rows = Object.values(state[table]).filter(row => {
+                const r = row as unknown as Record<string, unknown>;
+                return (!options?.containsPhoto || Array.isArray(r.photos) && r.photos.includes(options.containsPhoto)) && (!options?.oneOf || options.oneOf.values.includes(String(r[options.oneOf.field]))) && (!options?.afterId || (options.orderBy ? String(r.createdAt)<options.afterValue! || String(r.createdAt)===options.afterValue && row.id<options.afterId : row.id > options.afterId)) && Object.entries(filter).every(([k,v]) => r[k] === v)
+                    && (options?.ranges ?? []).every(({field,operator,value}) => {
+                        const actual = r[field];
+                        if (operator === "notNull") return actual !== null && actual !== undefined;
+                        if (typeof actual !== "string" || value === undefined) return false;
+                        return operator === "ne" ? actual !== value : operator === "lt" ? actual < value : operator === "lte" ? actual <= value : operator === "gt" ? actual > value : actual >= value;
+                    });
+            }).sort((a,b) => {
+                if(options?.orderBy) {const x=(a as unknown as Record<string,string>).createdAt!,y=(b as unknown as Record<string,string>).createdAt!;if(x!==y)return x>y?-1:1;return a.id>b.id?-1:a.id<b.id?1:0;}
+                return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+            });
+            if (!options?.limit && rows.length > limit) throw new AppError("Collection requires pagination", 503);
+            return rows.slice(0,limit).map(row => storedDocument(table, structuredClone(row)));
+        },
         async put(table, row) {
             if ((table === "snapshots" || table === "events" || table === "audits") && state[table][row.id])
                 throw new AppError("Immutable record", 409);

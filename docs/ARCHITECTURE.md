@@ -107,3 +107,13 @@ without customer address/phone data. Owner release changes operational capacity 
 Native browser inspection covered the public desktop and 390px-emulated layout and
 accessibility tree. Automated HTTP workflows cover application routes. This does
 not constitute an exhaustive browser, screen-reader or accessibility certification.
+
+
+## Phase 4 verification update
+
+The separately authorized disposable PostgreSQL verification and hardening are
+recorded in [PHASE4_REPORT.md](PHASE4_REPORT.md). That report supersedes earlier
+statements that no isolated database was available or authorized. Existing/remote
+databases and real providers remain outside this verification. See
+[OPERATIONS.md](OPERATIONS.md) for environment, worker, migration, recovery and
+versioned confirmation-key procedures. Approved product policies and fees are unchanged.

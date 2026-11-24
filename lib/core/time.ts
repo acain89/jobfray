@@ -5,6 +5,7 @@ export function localParts(time: number, zone: string) {
     let f = formatters.get(zone);
     if (!f) {
         f = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+        if(formatters.size>=256)formatters.delete(formatters.keys().next().value!);
         formatters.set(zone, f);
     }
     const parts = Object.fromEntries(f.formatToParts(time).map(p => [p.type, p.value]));
@@ -31,7 +32,7 @@ export function localInstant(local: string, zone: string, ambiguity: "REJECT" | 
     return (ambiguity === "LATER" ? candidates.at(-1) : candidates[0])!;
 }
 export function dayDifference(start: number, end: number, zone: string): number { return (Date.parse(localParts(end, zone).date) - Date.parse(localParts(start, zone).date)) / 86400000; }
-function startOfDay(date: string, zone: string): number {
+export function startOfDay(date: string, zone: string): number {
     for (let minute = 0; minute < 1440; minute++)
         try {
             return localInstant(date + "T" + String(Math.floor(minute / 60)).padStart(2, "0") + ":" + String(minute % 60).padStart(2, "0"), zone, "EARLIER");

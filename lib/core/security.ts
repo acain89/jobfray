@@ -44,7 +44,7 @@ export async function verifyPassword(value: string, encoded: string): Promise<bo
 export async function audit(tx: Transaction, businessId: string | null, action: string, actor: string, now: Date, requestId: string | null = null) {
     await tx.put("audits", { id: randomUUID(), businessId, requestId, action, actor, at: now.toISOString() });
 }
-export async function enqueue(tx: Transaction, mail: Omit<Outbox, "id" | "state" | "attempts" | "availableAt" | "leaseUntil">, now: Date) {
+export async function enqueue(tx: Transaction, mail: Omit<Outbox, "id" | "state" | "attempts" | "availableAt" | "leaseUntil" | "leaseToken">, now: Date) {
     if ((await tx.find("outbox", { key: mail.key })).length)
         return;
     await tx.put("outbox", { ...mail, id: randomUUID(), state: "PENDING", attempts: 0, availableAt: now.toISOString(), leaseUntil: null });
@@ -71,8 +71,14 @@ export async function register(repo: Repository, input: unknown, now: Date) {
     await rateLimit(repo, "register:" + address, 4, now, 60);
     const encoded = await passwordHash(v.password);
     return repo.transaction(["account:" + address], async (tx) => {
-        if ((await tx.find("accounts", { email: address })).length)
+        const existing = (await tx.find("accounts", {email:address}))[0];
+        if (existing) {
+            if (!existing.verifiedAt) {
+                const token = await issue(tx,"VERIFY_EMAIL",existing.id,now,60);
+                await enqueue(tx,{businessId:null,destination:address,channel:"EMAIL",kind:"VERIFY_EMAIL",body:token,key:"verify:"+existing.id+":"+hash(token)},now);
+            }
             return { message: "If eligible, a verification email has been queued." };
+        }
         const id = randomUUID();
         await tx.put("accounts", { id, email: address, passwordHash: encoded, verifiedAt: null, createdAt: now.toISOString() });
         const token = await issue(tx, "VERIFY_EMAIL", id, now, 60);

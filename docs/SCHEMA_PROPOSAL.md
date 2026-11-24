@@ -50,3 +50,13 @@ Pricing-policy changes must add a new version while preserving prior snapshots a
 version-aware constraints. Never update historical financial facts or destructively
 roll back the new tables. Production secrets/keys, object storage, background jobs
 and retention procedures require separate release configuration and review.
+
+
+## Phase 4 verification update
+
+The separately authorized disposable PostgreSQL verification and hardening are
+recorded in [PHASE4_REPORT.md](PHASE4_REPORT.md). That report supersedes earlier
+statements that no isolated database was available or authorized. Existing/remote
+databases and real providers remain outside this verification. See
+[OPERATIONS.md](OPERATIONS.md) for environment, worker, migration, recovery and
+versioned confirmation-key procedures. Approved product policies and fees are unchanged.

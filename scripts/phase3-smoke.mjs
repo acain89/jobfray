@@ -10,7 +10,7 @@ let server;
 let origin=external;
 if(!origin){const probe=net.createServer();await new Promise(r=>probe.listen(0,"127.0.0.1",r));const port=probe.address().port;await new Promise(r=>probe.close(r));origin=`http://127.0.0.1:${port}`;
   const env=Object.fromEntries(Object.entries(process.env).filter(([k])=>["PATH","SYSTEMROOT","WINDIR","COMSPEC","PATHEXT","TEMP","TMP","USERPROFILE","APPDATA","LOCALAPPDATA"].includes(k.toUpperCase())));
-  server=spawn(process.execPath,["--import","./scripts/verification-network-guard.mjs","node_modules/next/dist/bin/next","start","--hostname","127.0.0.1","--port",String(port)],{env:{...env,JOBFRAY_SANDBOX:"1",JOBFRAY_PUBLIC_ORIGIN:origin,NEXT_TELEMETRY_DISABLED:"1"},stdio:["ignore","ignore","pipe"]});
+  server=spawn(process.execPath,["--import","./scripts/verification-network-guard.mjs","node_modules/next/dist/bin/next","start","--hostname","127.0.0.1","--port",String(port)],{env:{...env,JOBFRAY_SANDBOX:"1",JOBFRAY_LOCAL_TEST:"1",JOBFRAY_PUBLIC_ORIGIN:origin,NEXT_TELEMETRY_DISABLED:"1"},stdio:["ignore","ignore","pipe"]});
 }
 const jar=new Map();let csrf="";
 async function call(path,options={}){const r=await fetch(origin+path,{...options,headers:{Cookie:[...jar].map(([k,v])=>k+"="+v).join(";"),...options.headers}});for(const value of r.headers.getSetCookie()){const pair=value.split(";")[0],i=pair.indexOf("=");jar.set(pair.slice(0,i),pair.slice(i+1));}return r;}
@@ -18,7 +18,7 @@ async function get(op){const r=await call("/api/core?op="+op);assert.equal(r.sta
 async function post(op,data,expect=200){const r=await call("/api/core",{method:"POST",headers:{Origin:origin,"Content-Type":"application/json","x-csrf-token":csrf},body:JSON.stringify({op,data})});const v=await r.json();assert.equal(r.status,expect,op+" failed: "+(v.error??""));if(v.csrf)csrf=v.csrf;return v;}
 try{
   for(let i=0;i<100;i++){try{if((await fetch(origin+"/api/health")).ok)break;}catch{}if(server?.exitCode!==null&&server?.exitCode!==undefined)throw new Error("Sandbox server exited");await new Promise(r=>setTimeout(r,200));}
-  csrf=(await get("session")).csrf;
+  csrf=(await get("session")).csrf;assert.equal((await call("/sandbox/inbox")).status,200);
   const malicious=await call("/api/core",{method:"POST",headers:{Origin:"https://cross-origin.invalid","Content-Type":"application/json","x-csrf-token":csrf},body:JSON.stringify({op:"register",data:{}})});assert.equal(malicious.status,403);
   const id=randomUUID().slice(0,8),email=`smoke-${id}@example.test`,password="Synthetic smoke password 2026!";
   await post("register",{email,password});let inbox=await get("sandbox-inbox");const verification=inbox.items.find(v=>v.destination===email&&v.kind==="VERIFY_EMAIL").body;
@@ -39,15 +39,15 @@ try{
   const png=await sharp({create:{width:32,height:32,channels:3,background:"#77a08b"}}).png().toBuffer();
   const upload=await call("/api/media",{method:"POST",headers:{Origin:origin,"Content-Type":"application/json","x-csrf-token":csrf},body:JSON.stringify({businessId:business.id,kind:"QUOTE",bytes:png.toString("base64"),contentType:"image/png",proof,phone})});assert.equal(upload.status,200);const photo=(await upload.json()).id;
   const dateParts=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"America/Chicago",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).map(p=>[p.type,p.value]));const date=new Date(Date.parse(`${dateParts.year}-${dateParts.month}-${dateParts.day}T12:00Z`)+86400000).toISOString().slice(0,10);
-  const receipts=[];
+  const receipts=[];let lastToken="";
   for(const mode of profile.modes){const selection={businessId:business.id,offeringId:item.id,mode,fulfillment:"STOREFRONT",quantity:mode==="RENTAL"?2:1,partySize:mode==="RESERVATION"?3:1,startLocal:mode==="QUOTE"?"":date+"T10:00",endLocal:mode==="QUOTE"?"":date+(mode==="RENTAL"?"T12:00":"T11:00"),ambiguity:"REJECT",contact:{name:"Synthetic customer",phone,address:"",notes:mode==="QUOTE"?"A short synthetic job description":""},photos:mode==="QUOTE"?[photo]:[]};
     const checkout=await post("checkout",{selection,proof,idempotencyKey:"smoke-"+id+mode}),again=await post("checkout",{selection,proof,idempotencyKey:"smoke-"+id+mode});assert.equal(checkout.requestId,again.requestId);
     assert.equal(checkout.snapshot.platformFeeCents,mode==="SERVICE"?400:300);await post("mock-pay",{requestId:checkout.requestId});
-    const receipt=await get("confirmation");assert.ok(receipt.request);assert.equal(receipt.request.businessPhone,profile.phone);receipts.push(receipt);
+    lastToken=checkout.confirmationToken;const receipt=await get("confirmation");assert.ok(receipt.request);assert.equal(receipt.request.businessPhone,profile.phone);receipts.push(receipt);
     if(mode!=="QUOTE"){const calendar=await call("/api/calendar");assert.equal(calendar.status,200);assert.ok((await calendar.text()).includes("BEGIN:VCALENDAR"));}
   }
-  const w=await get("workspace");assert.equal(w.requests.length,4);await post("sandbox-reconcile",{});const finalInbox=await get("sandbox-inbox");
+  const w=await get("workspace");assert.equal(w.requests.length,4);await post("sandbox-reconcile",{});const finalInbox=await get("sandbox-inbox");assert.ok(finalInbox.items.some(v=>v.kind==="CUSTOMER_CONFIRMATION"));
   await mkdir(resolve("artifacts"),{recursive:true});
-  await writeFile(resolve("artifacts","phase3-browser-fixture.json"),JSON.stringify({email,password,slug:business.slug,businessId:business.id,offeringId:item.id,confirmationLink:finalInbox.items.filter(v=>v.kind==="CUSTOMER_CONFIRMATION").at(-1)?.body},null,2));
+  await writeFile(resolve("artifacts","phase3-browser-fixture.json"),JSON.stringify({email,password,slug:business.slug,businessId:business.id,offeringId:item.id,confirmationLink:"/confirmation#access="+lastToken},null,2));
   console.log("PASS: real HTTP registration, verification, login, CSRF rejection, onboarding, catalog, publication, directory privacy, QR, upload and all four idempotent mock payment/confirmation/calendar workflows. No live provider or database.");
 }finally{if(server&&server.exitCode===null){const done=new Promise(r=>server.once("exit",r));server.kill();await done;}}

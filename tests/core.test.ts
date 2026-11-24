@@ -404,3 +404,56 @@ test("fixed reservation slots align to operating-window boundaries and DNS slugs
  const c=config("RESERVATION");assert.ok(c.mode==="RESERVATION");const s={businessId:"b",offeringId:"o",mode:"RESERVATION" as const,fulfillment:"STOREFRONT" as const,quantity:1,partySize:1,startLocal:"2026-11-24T10:15",endLocal:"2026-11-24T11:15",ambiguity:"REJECT" as const,contact:{name:"",phone:"",address:"",notes:""},photos:[]};
  assert.throws(()=>checkSchedule(s,c,openHours,"America/Chicago",now),/aligned/);assert.equal(subdomainSlug("invalid-.jobfray.com"),null);
 });
+
+test("capacity reductions preserve existing obligations and selected rental/person quantities exhaust shared pools",async()=>{
+ const f=await fixture(3);const first=await f.service.checkout({...input(f,"RENTAL"),quantity:2},f.proof,"quantity-two",now);await paid(f,first);
+ await assert.rejects(saveResource(f.repo,f.owner.token,f.business.id,f.resource.id,{name:f.resource.name,capacity:1,hours:openHours},now),/existing obligations/);
+ await assert.rejects(f.service.checkout({...input(f,"RESERVATION"),partySize:2},f.proof,"party-two",now),/capacity/);
+ const final=await f.service.checkout(input(f,"SERVICE"),f.proof,"remaining-one",now);await paid(f,final);
+ await assert.rejects(f.service.checkout(input(f),f.proof,"exhausted",now),/capacity/);
+});
+test("missing scheduled allocations require remediation instead of a false confirmation",async()=>{
+ const f=await fixture(),r=await f.service.checkout(input(f),f.proof,"missing",now);
+ await f.repo.transaction([],async tx=>{for(const a of await tx.find("allocations",{requestId:r.requestId}))await tx.remove("allocations",a.id);});
+ assert.equal((await paid(f,r)).status,"REFUND_REQUIRED");assert.equal((await f.service.confirmation(r.confirmationToken)).request,undefined);
+});
+
+test("stale notification workers cannot acknowledge a newer lease",async()=>{
+ const repo=new MemoryRepository();
+ await repo.transaction([],tx=>tx.put("outbox",{id:"leased",businessId:null,key:"lease-test",destination:"synthetic@example.test",channel:"EMAIL",kind:"TEST",body:"synthetic",state:"PENDING",attempts:0,availableAt:now.toISOString(),leaseUntil:null}));
+ let started!:()=>void,unblock!:()=>void;const begun=new Promise<void>(r=>started=r),blocked=new Promise<void>(r=>unblock=r);
+ const a=deliverNotifications(repo,{send:async()=>{started();await blocked;throw new Error("Old worker timeout");}},now);await begun;
+ const b=new MockNotificationTransport();await deliverNotifications(repo,b,new Date(now.getTime()+120000));unblock();await a;
+ const row=await repo.transaction([],tx=>tx.get("outbox","leased"));assert.equal(row!.state,"SENT");assert.equal(row!.attempts,1);assert.equal(b.delivered.size,1);
+});
+
+test("expired verification can be reissued without replacing the existing password",async()=>{
+ const repo=new MemoryRepository();await register(repo,{email:profile.email,password},now);
+ const before=await repo.transaction([],tx=>tx.find("outbox",{kind:"VERIFY_EMAIL"}));
+ const later=new Date(now.getTime()+61*60000);await register(repo,{email:profile.email,password:"Unrelated synthetic password"},later);
+ const after=await repo.transaction([],tx=>tx.find("outbox",{kind:"VERIFY_EMAIL"}));const token=after.find(r=>!before.some(old=>old.id===r.id))!.body;
+ await consumeAccountToken(repo,token,"VERIFY_EMAIL",null,later);assert.ok((await login(repo,profile.email,password,later)).token);
+});
+
+test("calendar edits racing checkout preserve any already purchased hold",async()=>{
+ const f=await fixture(1),hours={...openHours,blocked:[{start:"2026-11-24T15:00:00.000Z",end:"2026-11-24T18:00:00.000Z"}]};
+ const outcomes=await Promise.allSettled([f.service.checkout(input(f),f.proof,"edit-race",now),saveResource(f.repo,f.owner.token,f.business.id,f.resource.id,{name:f.resource.name,capacity:1,hours},now)]);
+ assert.equal(outcomes[1]!.status,"fulfilled");
+ const booked=outcomes[0]!;if(booked.status==="fulfilled")assert.equal((await paid(f,booked.value as {requestId:string;confirmationToken:string})).status,"CONFIRMED");
+});
+
+test("confirmation key rotation preserves issued capabilities and historical idempotent replay",async()=>{
+ const f=await fixture(),s=input(f),r=await f.service.checkout(s,f.proof,"key-rotation",now);
+ const rotated=new BookingService(f.repo,f.geo,f.payments,"new-confirmation-signing-key-with-32-characters","v2",{v1:"synthetic-confirmation-signing-key-123456789"});
+ assert.equal((await rotated.checkout(s,f.proof,"key-rotation",now)).confirmationToken,r.confirmationToken);
+ const intent=await rotated.intent(r.requestId,r.confirmationToken,now),event=f.payments.event(intent);assert.equal((await rotated.paymentEvent(event.payload,event.signature,now)).status,"CONFIRMED");
+ assert.ok((await rotated.confirmation(r.confirmationToken)).request);
+});
+
+test("precomputed public ZIP centroids avoid per-business provider calls without exposing private bases",async()=>{
+ const f=await fixture();await saveProfile(f.repo,f.owner.token,profile,now,{latitude:30.27,longitude:-97.74});
+ const geo={zip:async()=>{throw new Error("Unexpected directory provider call");},address:async()=>{throw new Error("unused");}};
+ const results=await directory(f.repo,{text:"",mode:"SERVICE",fulfillment:"MOBILE",zip:"",point:{latitude:30.27,longitude:-97.74}},geo);
+ assert.equal(results.length,1);assert.equal("address" in results[0]!,false);assert.equal("latitude" in results[0]!,false);
+ await assert.rejects(f.service.slots(f.business.id,f.offering.id,"SERVICE","STOREFRONT","2026-11-31",now),/30-calendar/);
+});

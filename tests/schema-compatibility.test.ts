@@ -11,7 +11,7 @@ test("all historical migrations and repository instructions are byte-for-byte re
     assert.equal(files.filter((f) => f.endsWith("migration.sql")).length, 3);
     for (const file of [...files, "AGENTS.md", "CLAUDE.md"])
         assert.deepEqual(readFileSync(file), historical(file), file);
-    assert.equal(readdirSync("prisma/migrations", { withFileTypes: true }).filter((d) => d.isDirectory()).length, 3);
+    assert.equal(readdirSync("prisma/migrations", { withFileTypes: true }).filter((d) => d.isDirectory()).length, 5);
 });
 test("legacy models and enums are unchanged; Prisma 5 only adds the datasource URL", () => {
     const actual = readFileSync("prisma/schema.prisma", "utf8").split("// PHASE 3 ADDITIVE MODELS.")[0]!.trimEnd().replace('\n  url      = env("DATABASE_URL")', "");

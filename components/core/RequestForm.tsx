@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { SiteData } from "./SiteView";
@@ -27,7 +27,10 @@ export function RequestForm({ site, offeringId, initialMode, sandbox, today, las
     const [partySize, setPartySize] = useState(config.mode === "RESERVATION" ? config.minimumParty : 1);
     const endBoundary = new Date(Date.parse(lastDate + "T12:00Z") + 86400000).toISOString().slice(0, 10) + "T00:00";
     const ranged = config.mode === "RENTAL" || config.mode === "RESERVATION" && config.interval === "MULTIDAY";
+    const running = useRef(false);
     const run = async (fn: () => Promise<void>) => {
+        if (running.current) return;
+        running.current = true;
         setError("");
         setMessage("");
         setBusy(true);
@@ -38,6 +41,7 @@ export function RequestForm({ site, offeringId, initialMode, sandbox, today, las
             setError((e as Error).message);
         }
         finally {
+            running.current = false;
             setBusy(false);
         }
     };
@@ -54,12 +58,13 @@ export function RequestForm({ site, offeringId, initialMode, sandbox, today, las
                 setResult(await api<CheckoutResult>("checkout", { selection: input, proof, idempotencyKey: key }));
             });
         }}>
-      <div className="form-grid"><label>Request type<select value={config.mode} disabled={!!result} onChange={e => { setMode(e.target.value); const next = offering.configurations.find(c => c.mode === e.target.value)!; setPartySize(next.mode === "RESERVATION" ? next.minimumParty : 1); setSlots([]); setSlot(""); setFulfillment(offering.configurations.find(c => c.mode === e.target.value)!.fulfillments[0]!); }}>{offering.configurations.map(c => <option value={c.mode} key={c.mode}>{c.mode}</option>)}</select></label><label>Fulfillment<select value={fulfillment} disabled={!!result} onChange={e => setFulfillment(e.target.value as "MOBILE" | "STOREFRONT")}>{config.fulfillments.map(v => <option value={v} key={v}>{v === "MOBILE" ? config.mode === "RENTAL" ? "Business delivery" : "At your location" : config.mode === "RENTAL" ? "Customer pickup" : "At the business"}</option>)}</select></label></div>
+      <fieldset className="stack request-fields" disabled={!!result || busy}>
+      <div className="form-grid"><label>Request type<select value={config.mode} disabled={!!result} onChange={e => { setMode(e.target.value); const next = offering.configurations.find(c => c.mode === e.target.value)!; setPartySize(next.mode === "RESERVATION" ? next.minimumParty : 1); setSlots([]); setSlot(""); setFulfillment(offering.configurations.find(c => c.mode === e.target.value)!.fulfillments[0]!); }}>{offering.configurations.map(c => <option value={c.mode} key={c.mode}>{c.mode}</option>)}</select></label><label>Fulfillment<select value={fulfillment} disabled={!!result} onChange={e => {setFulfillment(e.target.value as "MOBILE" | "STOREFRONT");setSlots([]);setSlot("");}}>{config.fulfillments.map(v => <option value={v} key={v}>{v === "MOBILE" ? config.mode === "RENTAL" ? "Business delivery" : "At your location" : config.mode === "RENTAL" ? "Customer pickup" : "At the business"}</option>)}</select></label></div>
       <p>{priceDescription(config)} A separate customer-paid JF platform fee is shown before mock payment.</p>
       {config.mode === "RENTAL" && <label>Quantity<input name="quantity" type="number" min={1} max={10000} defaultValue={1} required/></label>}
       {config.mode === "RESERVATION" && <label>Party size<input name="party" type="number" min={config.minimumParty} max={config.maximumParty} value={partySize} onChange={e => { setPartySize(Number(e.target.value)); setSlots([]); setSlot(""); }} required/></label>}
       {config.mode !== "QUOTE" && <fieldset><legend>Choose dates and times / {site.timeZone}</legend><p>One rolling 30-calendar-day window: {today} through {lastDate}. Availability is rechecked when your 15-minute checkout hold is created.</p>
-        {ranged ? <><div className="form-grid"><label>Start<input name="start" type="datetime-local" min={today + "T00:00"} max={lastDate + "T23:59"} required/></label><label>End<input name="end" type="datetime-local" min={today + "T00:00"} max={endBoundary} required/></label></div><label>Start-time daylight-saving occurrence<select name="ambiguity" defaultValue="REJECT"><option value="REJECT">Ask me to choose if ambiguous</option><option value="EARLIER">Earlier occurrence</option><option value="LATER">Later occurrence</option></select></label><label>End-time daylight-saving occurrence<select name="endAmbiguity" defaultValue="REJECT"><option value="REJECT">Ask me to choose if ambiguous</option><option value="EARLIER">Earlier occurrence</option><option value="LATER">Later occurrence</option></select></label>{config.mode === "RENTAL" && <p>Hourly rentals use whole elapsed hours. Daily rentals use whole business-local calendar days and return at the same local clock time. Pickup and return must fit operating windows; overnight occupancy does not require the business to stay open.</p>}</> : <><div className="form-grid"><label>Date<input type="date" min={today} max={lastDate} value={date} onChange={e => setDate(e.target.value)}/></label><button type="button" disabled={busy} onClick={() => void run(async () => {
+        {ranged ? <><div className="form-grid"><label>Start<input name="start" type="datetime-local" min={today + "T00:00"} max={lastDate + "T23:59"} required/></label><label>End<input name="end" type="datetime-local" min={today + "T00:00"} max={endBoundary} required/></label></div><label>Start-time daylight-saving occurrence<select name="ambiguity" defaultValue="REJECT"><option value="REJECT">Ask me to choose if ambiguous</option><option value="EARLIER">Earlier occurrence</option><option value="LATER">Later occurrence</option></select></label><label>End-time daylight-saving occurrence<select name="endAmbiguity" defaultValue="REJECT"><option value="REJECT">Ask me to choose if ambiguous</option><option value="EARLIER">Earlier occurrence</option><option value="LATER">Later occurrence</option></select></label>{config.mode === "RENTAL" && <p>Hourly rentals use whole elapsed hours. Daily rentals use whole business-local calendar days and return at the same local clock time. Pickup and return must fit operating windows; overnight occupancy does not require the business to stay open.</p>}</> : <><div className="form-grid"><label>Date<input type="date" min={today} max={lastDate} value={date} onChange={e => {setDate(e.target.value);setSlots([]);setSlot("");}}/></label><button type="button" disabled={busy} onClick={() => void run(async () => {
                     const params = new URLSearchParams({ op: "slots", businessId: site.id, offeringId: offering.id, mode: config.mode, fulfillment, date, partySize: String(partySize) }), r = await fetch("/api/core?" + params), v = await r.json();
                     if (!r.ok)
                         throw new Error(v.error);
@@ -93,6 +98,7 @@ export function RequestForm({ site, offeringId, initialMode, sandbox, today, las
             })}/><small>Verify your phone before uploading. Up to 5 MB per image; private, validated and metadata-stripped.</small></label><div className="pills">{photos.map((id, i) => <button type="button" key={id} onClick={() => setPhotos(v => v.filter(x => x !== id))}>Photo {i + 1} / remove</button>)}</div></>}
       <aside className="notice"><h2>Before you continue</h2><p>{DISCLOSURE}</p><Link href="/terms">Read the draft Terms and privacy information</Link></aside>
       {!result && <button className="button" disabled={busy || !proof || !sandbox}>{busy ? "Checking availability..." : "Review request and separate JF fee"}</button>}
+      </fieldset>
     </form>
     {result && <section className="card stack" aria-labelledby="review-heading"><h2 id="review-heading">Review your request</h2><p>Underlying subtotal: <strong>{money(result.snapshot.underlyingSubtotalCents)}</strong></p><p>{result.snapshot.priceLabel}</p><p>Quantity: {result.snapshot.quantity} / Party: {result.snapshot.partySize}{result.snapshot.durationUnits ? ` / Duration: ${result.snapshot.durationUnits} ${result.snapshot.durationUnit}` : ""}</p><p>Separate JF platform fee: <strong>{money(result.snapshot.platformFeeCents)}</strong></p><p>No underlying business payment is collected by JF. This mock hold expires after 15 minutes.</p><button className="button" disabled={busy} onClick={() => void run(async () => { await api("mock-pay", { requestId: result.requestId }); router.push("/confirmation"); })}>Simulate verified platform-fee payment / no money</button></section>}
     {error && <p role="alert" className="error-text">{error}</p>}{message && <p role="status">{message}</p>}

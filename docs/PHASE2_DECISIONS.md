@@ -102,3 +102,13 @@ reviewed and make no unconditional legal-immunity claim.
   authorization. No live DNS or certificate operation occurred in this phase.
 - Full browser/assistive-technology accessibility and QR scan verification remain
   release checks beyond the focused native-browser inspection executed in Phase 3.
+
+
+## Phase 4 verification update
+
+The separately authorized disposable PostgreSQL verification and hardening are
+recorded in [PHASE4_REPORT.md](PHASE4_REPORT.md). That report supersedes earlier
+statements that no isolated database was available or authorized. Existing/remote
+databases and real providers remain outside this verification. See
+[OPERATIONS.md](OPERATIONS.md) for environment, worker, migration, recovery and
+versioned confirmation-key procedures. Approved product policies and fees are unchanged.

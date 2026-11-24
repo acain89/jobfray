@@ -33,6 +33,7 @@ model JfSession {
   document Json
   account JfAccount @relation(fields:[accountId],references:[id],onDelete:Restrict)
   @@index([accountId,expiresAt])
+  @@index([expiresAt])
 }
 model JfToken {
   id String @id
@@ -41,6 +42,7 @@ model JfToken {
   expiresAt DateTime @db.Timestamptz(3)
   document Json
   @@index([purpose,expiresAt])
+  @@index([expiresAt])
 }
 model JfBusiness {
   id String @id
@@ -151,6 +153,7 @@ model JfMedia {
   document Json
   business JfBusiness @relation(fields:[businessId],references:[id],onDelete:Restrict)
   @@index([businessId,expiresAt])
+  @@index([expiresAt])
 }
 model JfAudit {
   id String @id

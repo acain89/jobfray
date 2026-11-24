@@ -1,6 +1,6 @@
 import type { Table, Tables } from "./model";
 import { record, integer } from "../domain/validation";
-import { AppError, string, email, phone, profile, content, hours, offering, whole } from "./validation";
+import { AppError, string, email, phone, profile, content, hours, offering, whole, number } from "./validation";
 /** Validate stored JSON aggregates at the adapter boundary; malformed records fail closed. */
 export function storedDocument<K extends Table>(table: K, input: unknown): Tables[K] {
     const v = record(input);
@@ -10,6 +10,7 @@ export function storedDocument<K extends Table>(table: K, input: unknown): Table
     if (table === "businesses") {
         const fields = ["name", "slug", "category", "description", "email", "phone", "address", "addressPublic", "city", "zip", "latitude", "longitude", "timeZone", "modes", "directory"];
         profile(Object.fromEntries(fields.map(k => [k, v[k]])));
+        if(v.discoveryPoint!==undefined){const point=record(v.discoveryPoint);number(point.latitude,-90,90);number(point.longitude,-180,180);}
         content(v.draft);
         if (v.published !== null)
             content(v.published);

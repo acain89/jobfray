@@ -3,7 +3,7 @@ import { runtime, applicationEnabled, requireSandbox } from "@/lib/core/runtime"
 import { body, response, failure, csrf, csrfResponse, COOKIE, CONFIRMATION, secure, cookieValue } from "@/lib/core/http";
 import { AppError, string, whole, phone } from "@/lib/core/validation";
 import { register, login, recover, consumeAccountToken, startContact, verifyContact, session, ownerScope, rateLimit, hash } from "@/lib/core/security";
-import { saveProfile, workspace, saveOffering, saveResource, autosave, publish, unpublish, suspend, readiness } from "@/lib/core/business";
+import { saveProfile, workspace, saveOffering, saveResource, autosave, publish, unpublish, suspend, readiness, ownerBusiness } from "@/lib/core/business";
 import { deliverNotifications } from "@/lib/core/booking";
 import { MockPaymentAdapter } from "@/lib/core/providers";
 import { adminOverview, requestRefund, simulateRefund, cleanup } from "@/lib/core/administration";
@@ -15,11 +15,12 @@ export async function GET(request: Request) {
             if (!applicationEnabled())
                 return csrfResponse({ available: false, sandbox: false });
             const app = await runtime();
+            if (app.sandbox) requireSandbox(request);
             let signedIn = false;
             let currentCsrf: string | undefined;
             if (token)
                 try {
-                    const current = await app.repo.transaction(["session"], tx => session(tx, token, new Date()));
+                    const current = await app.repo.transaction([], tx => session(tx, token, new Date()));
                     signedIn = true;
                     currentCsrf = current.session.csrf;
                 }
@@ -34,14 +35,14 @@ export async function GET(request: Request) {
             return response(await app.booking.slots(string(p.get("businessId"), 80), string(p.get("offeringId"), 80), string(p.get("mode"), 20), string(p.get("fulfillment"), 20), string(p.get("date"), 10), new Date(), p.has("partySize") ? whole(Number(p.get("partySize")), 1, 10000) : undefined));
         }
         if (op === "workspace")
-            return response(await workspace(app.repo, token, new Date()));
+            return response(await workspace(app.repo, token, new Date(), new URL(request.url).searchParams.get("after") ?? undefined));
         if (op === "confirmation")
             return response(await app.booking.confirmation(jar.get(CONFIRMATION)?.value ?? ""));
         if (op === "admin")
-            return response(await adminOverview(app.repo, token, (process.env.JOBFRAY_ADMIN_EMAILS ?? "").split(","), new Date()));
+            return response(await adminOverview(app.repo, token, (process.env.JOBFRAY_ADMIN_EMAILS ?? "").split(","), new Date(), {business:new URL(request.url).searchParams.get("businessAfter")??undefined,refund:new URL(request.url).searchParams.get("refundAfter")??undefined}));
         if (op === "readiness") {
-            const w = await workspace(app.repo, token, new Date());
-            return response({ errors: w.business ? await app.repo.transaction(["tenant:" + w.business.id], tx => readiness(tx, w.business!)) : ["Create your business first."] });
+            const business = await ownerBusiness(app.repo,token,new Date());
+            return response({ errors: business ? await app.repo.transaction([],tx=>readiness(tx,business)) : ["Create your business first."] });
         }
         if (op === "sandbox-inbox") {
             requireSandbox(request);
@@ -61,7 +62,7 @@ export async function POST(request: Request) {
             requireSandbox(request);
         const now = new Date(), token = cookieValue(request, COOKIE);
         // Do not trust forwarded IP. Global + normalized subject limits supplement provider edge limits.
-        await rateLimit(app.repo, "http:" + op, 200, now, 1);
+        await rateLimit(app.repo, "http:" + op + ":" + hash(token ?? cookieValue(request, "__Host-jf_csrf") ?? cookieValue(request, "jf_csrf") ?? "anonymous"), 200, now, 1);
         if (op === "register")
             return response(await register(app.repo, data, now));
         if (op === "login") {
@@ -75,16 +76,17 @@ export async function POST(request: Request) {
             return response(await consumeAccountToken(app.repo, v.token, op === "verify-email" ? "VERIFY_EMAIL" : "RESET_PASSWORD", v.password, now));
         if (op === "logout") {
             if (token)
-                await app.repo.transaction(["logout"], async (tx) => { for (const s of await tx.find("sessions", { tokenHash: hash(token) }))
+                await app.repo.transaction(["session:" + hash(token)], async (tx) => { for (const s of await tx.find("sessions", { tokenHash: hash(token) }))
                     await tx.remove("sessions", s.id); });
             const r = response({ signedOut: true });
             r.cookies.set(COOKIE, "", { httpOnly: true, secure: secure(), sameSite: "lax", path: "/", maxAge: 0 });
             return r;
         }
         if (op === "save-profile") {
-            await app.repo.transaction(["session"], tx => session(tx, token, now));
+            await app.repo.transaction([], tx => session(tx, token, now));
             const point = await app.geocoder.address(string(v.address, 250));
-            return response(await saveProfile(app.repo, token, { ...v, ...point }, now));
+            const discoveryPoint = await app.geocoder.zip(string(v.zip,5));
+            return response(await saveProfile(app.repo, token, { ...v, ...point }, now, discoveryPoint));
         }
         if (op === "save-resource")
             return response(await saveResource(app.repo, token, string(v.businessId, 80), v.id ? string(v.id, 80) : null, v.resource, now));

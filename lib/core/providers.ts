@@ -61,7 +61,7 @@ export class MockPaymentAdapter implements PaymentAdapter {
         if (received.length !== expected.length || !timingSafeEqual(received, expected))
             throw new AppError("Unverified payment event", 403);
         const event = JSON.parse(payload) as VerifiedPayment;
-        if (typeof event.eventId !== "string" || event.eventId.length > 150 || typeof event.intentId !== "string" || !event.intentId || typeof event.paymentId !== "string" || !event.paymentId || typeof event.requestId !== "string" || !Number.isSafeInteger(event.amountCents) || event.amountCents < 0 || event.currency !== "USD")
+        if (typeof event.eventId !== "string" || !event.eventId.trim() || event.eventId.length > 150 || typeof event.intentId !== "string" || !event.intentId || typeof event.paymentId !== "string" || !event.paymentId || typeof event.requestId !== "string" || !Number.isSafeInteger(event.amountCents) || event.amountCents < 0 || event.currency !== "USD")
             throw new AppError("Invalid payment event");
         return event;
     }

@@ -27,8 +27,8 @@ export async function api<T = Record<string, unknown>>(op: string, data: unknown
         currentCsrf = result.csrf;
     return result as T;
 }
-export async function query<T>(op: string): Promise<T> {
-    const r = await fetch("/api/core?op=" + encodeURIComponent(op), { cache: "no-store" }), v = await r.json();
+export async function query<T>(op: string, parameters: Record<string,string> = {}): Promise<T> {
+    const r = await fetch("/api/core?op=" + encodeURIComponent(op) + "&" + new URLSearchParams(parameters), { cache: "no-store" }), v = await r.json();
     if (!r.ok)
         throw new Error(v.error ?? "Unable to load");
     return v as T;

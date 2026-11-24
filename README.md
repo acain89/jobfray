@@ -95,3 +95,11 @@ now a declared direct dependency; no package download was performed.
 Read [architecture](docs/ARCHITECTURE.md), [database review](docs/SCHEMA_PROPOSAL.md)
 and [Phase 3 report](docs/PHASE3_REPORT.md) for executed evidence and limitations.
 Prior foundation/Phase 2 reports remain historical evidence of their earlier scope.
+
+
+Phase 4 hardening and actual verification: [report](docs/PHASE4_REPORT.md).
+Release configuration, worker authentication, migration safety and recovery:
+[operational runbook](docs/OPERATIONS.md). Production-build local mock checks require
+`JOBFRAY_LOCAL_TEST=1` as well as the sandbox flag, a loopback public origin and an
+explicit `--hostname 127.0.0.1` listener. These are test-only settings, never deployment
+settings. Production readiness remains gated.

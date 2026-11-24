@@ -20,9 +20,12 @@ export interface Runtime {
 const globalRuntime = globalThis as typeof globalThis & {
     jobfrayRuntime?: Promise<Runtime>;
 };
-export function sandboxEnabled() { return process.env.JOBFRAY_SANDBOX === "1"; }
+import { localSandboxAllowed, validateConfiguration, previousConfirmationKeys, assertLocalTestBinding } from "./configuration";
+export function sandboxEnabled() { return localSandboxAllowed(); }
 export function applicationEnabled() { return sandboxEnabled() || process.env.JOBFRAY_DATABASE_ENABLED === "1" && process.env.JOBFRAY_RELEASE_DB_VERIFIED === "1"; }
 async function createRuntime(): Promise<Runtime> {
+    validateConfiguration();
+    assertLocalTestBinding();
     if (!applicationEnabled())
         throw new AppError("The application is not connected to verified persistence. Local sandbox setup is described in the project README.", 503);
     const sandbox = sandboxEnabled();
@@ -54,7 +57,7 @@ async function createRuntime(): Promise<Runtime> {
     const geocoder: Geocoder = sandbox ? new MockGeocoder() : { zip: async () => disabled(), address: async () => disabled() };
     const payments: PaymentAdapter = sandbox ? new MockPaymentAdapter(key) : { create: async () => disabled(), verify: () => disabled() };
     const notifications: NotificationTransport = sandbox ? new MockNotificationTransport() : { send: async () => disabled() };
-    return { repo, booking: new BookingService(repo, geocoder, payments, key), geocoder, payments, notifications, sandbox };
+    return { repo, booking: new BookingService(repo, geocoder, payments, key, sandbox ? "v1" : process.env.JOBFRAY_CONFIRMATION_KEY_VERSION ?? "v1", sandbox ? {} : previousConfirmationKeys()), geocoder, payments, notifications, sandbox };
 }
 export function runtime(): Promise<Runtime> { globalRuntime.jobfrayRuntime ??= createRuntime(); return globalRuntime.jobfrayRuntime; }
 export function requireSandbox(request: Request) {

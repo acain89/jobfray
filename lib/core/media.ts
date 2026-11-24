@@ -52,8 +52,8 @@ export async function uploadImage(repo: Repository, input: {
             if (business?.status !== "PUBLISHED")
                 throw new AppError("Business not available", 404);
         }
-        const current = await tx.find("media", { businessId: input.businessId });
-        if (current.filter(m => input.kind === "BUSINESS" ? m.ownerId === ownerId : m.proofHash === hash(input.proof ?? "")).length >= (input.kind === "BUSINESS" ? 40 : 6))
+        const current = await tx.count("media", { businessId: input.businessId, ...(input.kind === "BUSINESS" ? { ownerId } : { proofHash: hash(input.proof ?? "") }) });
+        if (current >= (input.kind === "BUSINESS" ? 40 : 6))
             throw new AppError("Upload limit reached", 429);
         const id = randomUUID();
         await tx.put("media", { id, businessId: input.businessId, ownerId, proofHash: input.kind === "QUOTE" ? hash(input.proof ?? "") : null, kind: input.kind, bytes: bytes.toString("base64"), contentType: "image/webp", createdAt: now.toISOString(), expiresAt: input.kind === "QUOTE" ? new Date(now.getTime() + 86400000).toISOString() : null });
@@ -61,7 +61,7 @@ export async function uploadImage(repo: Repository, input: {
     });
 }
 export async function readImage(repo: Repository, id: string, sessionToken: string | undefined, confirmationToken: string | undefined, now: Date) {
-    return repo.transaction(["media-read:" + id], async (tx) => {
+    return repo.transaction([], async (tx) => {
         const image = await tx.get("media", id);
         if (!image || image.expiresAt && Date.parse(image.expiresAt) <= now.getTime())
             throw new AppError("Image not found", 404);
@@ -76,7 +76,7 @@ export async function readImage(repo: Repository, id: string, sessionToken: stri
         if (sessionToken) {
             try {
                 await ownerScope(tx, sessionToken, image.businessId, now);
-                if (image.kind === "BUSINESS" || (await tx.find("requests", { businessId: image.businessId })).some(r => r.confirmedAt && r.photos.includes(id)))
+                if (image.kind === "BUSINESS" || (await tx.find("requests", { businessId: image.businessId },{limit:1,containsPhoto:id,ranges:[{field:"confirmedAt",operator:"notNull"}]})).length>0)
                     return image;
             }
             catch { /* do not disclose existence */ }

@@ -2,34 +2,45 @@ import { randomUUID } from "node:crypto";
 import type { Repository, Transaction } from "./repository";
 import type { Business, Offering, Resource } from "./model";
 import { EMPTY_CONTENT } from "./model";
-import { AppError, content, hours, offering, profile, string, whole } from "./validation";
+import { AppError, content, hours, offering, profile, string, whole, number } from "./validation";
 import { audit, ownerScope, session } from "./security";
 import { record, keys } from "../domain/validation";
 import type { Geocoder, Point } from "./providers";
 import { distanceMiles } from "./providers";
 export async function tenantRecord<K extends "offerings" | "resources" | "requests" | "media">(tx: Transaction, table: K, id: string, businessId: string) {
-    const row = await tx.get(table, id);
+    const row = (await tx.find(table, {id,businessId} as Partial<import("./model").Tables[K]>))[0];
     if (!row || row.businessId !== businessId)
         throw new AppError("Record not found", 404);
     return row;
 }
-export async function saveProfile(repo: Repository, rawSession: string | undefined, input: unknown, now: Date) {
+export async function saveProfile(repo: Repository, rawSession: string | undefined, input: unknown, now: Date, discoveryPoint?: Point) {
     const data = profile(input);
+    if(discoveryPoint){number(discoveryPoint.latitude,-90,90);number(discoveryPoint.longitude,-180,180);}
     return repo.transaction(["business-slug:" + data.slug, "owner-session:" + rawSession?.slice(0, 8)], async (tx) => {
         const { account } = await session(tx, rawSession, now), existing = (await tx.find("businesses", { ownerId: account.id }))[0];
         const duplicate = (await tx.find("businesses", { slug: data.slug }))[0];
         if (duplicate && duplicate.id !== existing?.id)
             throw new AppError("That business slug is already in use", 409);
         const row: Business = existing ? { ...existing, ...data, revision: existing.revision + 1 } : { ...data, id: randomUUID(), ownerId: account.id, status: "DRAFT", revision: 1, draft: structuredClone(EMPTY_CONTENT), published: null, pushEnabled: false, suspensionReason: null };
+        if(discoveryPoint)row.discoveryPoint=discoveryPoint;
+        else if(existing?.zip!==data.zip)delete row.discoveryPoint;
         await tx.put("businesses", row);
         await audit(tx, row.id, "BUSINESS_SAVED", account.id, now);
         return row;
     });
 }
-export async function workspace(repo: Repository, rawSession: string | undefined, now: Date) {
-    return repo.transaction(["workspace"], async (tx) => {
+/** Minimal authenticated profile read for QR/readiness operations; never loads customer history. */
+export async function ownerBusiness(repo:Repository,rawSession:string|undefined,now:Date):Promise<Business|null>{
+    return repo.transaction([],async tx=>{const {account}=await session(tx,rawSession,now);return (await tx.find("businesses",{ownerId:account.id}))[0]??null;});
+}
+export async function workspace(repo: Repository, rawSession: string | undefined, now: Date, afterId?: string) {
+    return repo.transaction([], async (tx) => {
         const { account } = await session(tx, rawSession, now), business = (await tx.find("businesses", { ownerId: account.id }))[0] ?? null;
-        return { asOf: now.toISOString(), account: { id: account.id, email: account.email }, business, offerings: business ? await tx.find("offerings", { businessId: business.id }) : [], resources: business ? await tx.find("resources", { businessId: business.id }) : [], requests: business ? (await tx.find("requests", { businessId: business.id })).filter(r => r.confirmedAt !== null) : [], snapshots: business ? await tx.find("snapshots", { businessId: business.id }) : [] };
+        const cursor = business && afterId ? await tenantRecord(tx,"requests",afterId,business.id) : null;
+        if(cursor && !cursor.confirmedAt)throw new AppError("Invalid history cursor");
+        const requests = business ? await tx.find("requests", { businessId: business.id }, { limit: 100, afterId, orderBy:"createdAt", ...(cursor?{afterValue:cursor.createdAt}:{}), ranges: [{field:"confirmedAt",operator:"notNull"}] }) : [];
+        const snapshots = business && requests.length ? await tx.find("snapshots", {businessId:business.id}, {oneOf:{field:"requestId",values:requests.map(r=>r.id)},limit:100}) : [];
+        return { asOf: now.toISOString(), account: { id: account.id, email: account.email }, business, offerings: business ? await tx.find("offerings", { businessId: business.id }) : [], resources: business ? await tx.find("resources", { businessId: business.id }) : [], requests, snapshots, historyCursor:afterId??null, historyLimited: requests.length === 100, nextCursor: requests.length === 100 ? requests.at(-1)!.id : null };
     });
 }
 export async function saveResource(repo: Repository, token: string | undefined, businessId: string, id: string | null, input: unknown, now: Date) {
@@ -40,6 +51,13 @@ export async function saveResource(repo: Repository, token: string | undefined, 
         if (id)
             await tenantRecord(tx, "resources", id, businessId);
         const row: Resource = { id: id ?? randomUUID(), businessId, name: string(v.name, 100), capacity: whole(v.capacity, 1, 10000), hours: hours(v.hours) };
+        // A lower capacity cannot invalidate already promised overlapping obligations.
+        if (id) {
+            const allocations = await tx.find("allocations", {businessId,resourceId:id}, {ranges:[{field:"end",operator:"gt",value:now.toISOString()}]});
+            const events = allocations.filter(a=>a.status === "CONFIRMED" || a.status === "HELD" && Date.parse(a.expiresAt!)>now.getTime()).flatMap(a=>[{at:Date.parse(a.start),delta:a.units},{at:Date.parse(a.end),delta:-a.units}]).sort((a,b)=>a.at-b.at||a.delta-b.delta);
+            let occupied=0;
+            for(const event of events){occupied+=event.delta;if(occupied>row.capacity)throw new AppError("Capacity cannot be reduced below existing obligations. Release future capacity first.",409);}
+        }
         // Existing confirmed/held allocations are never rewritten or removed by calendar/capacity edits.
         await tx.put("resources", row);
         await audit(tx, businessId, "CAPACITY_SETTINGS_SAVED", scope.accountId, now);
@@ -96,9 +114,10 @@ export async function readiness(tx: Transaction, business: Business): Promise<st
     const offerings = (await tx.find("offerings", { businessId: business.id })).filter(o => o.active && o.configurations.some(c => business.modes.includes(c.mode)));
     if (!offerings.length)
         errors.push("Add at least one active offering in an enabled mode.");
+    const resources = new Map((await tx.find("resources",{businessId:business.id})).map(resource=>[resource.id,resource]));
     for (const item of offerings)
         if (item.configurations.some(c => c.mode !== "QUOTE" && business.modes.includes(c.mode))) {
-            const resource = item.resourceId ? await tx.get("resources", item.resourceId) : null;
+            const resource = item.resourceId ? resources.get(item.resourceId) : null;
             if (!resource || !Object.values(resource.hours.weekly).some(w => w.length))
                 errors.push(`Configure operating hours for ${item.name}.`);
         }
@@ -147,7 +166,7 @@ export async function suspend(repo: Repository, token: string | undefined, busin
 export function publicOffering(o: Offering, b: Business) { return { id: o.id, name: o.name, description: o.description, photos: o.photos, configurations: o.configurations.filter(c => b.modes.includes(c.mode)) }; }
 export function publicBusiness(b: Business, offerings: Offering[]) { return { id: b.id, slug: b.slug, name: b.name, category: b.category, city: b.city, timeZone: b.timeZone, address: b.addressPublic ? b.address : null, content: b.published!, offerings: offerings.filter(o => o.active).map(o => publicOffering(o, b)).filter(o => o.configurations.length) }; }
 export async function publishedSite(repo: Repository, slug: string) {
-    return repo.transaction(["public:" + slug], async (tx) => {
+    return repo.transaction([], async (tx) => {
         const b = (await tx.find("businesses", { slug, status: "PUBLISHED" }))[0];
         if (!b?.published)
             return null;
@@ -162,20 +181,32 @@ export async function directory(repo: Repository, query: {
     point?: Point;
 }, geocoder: Geocoder) {
     const point = query.point ?? (query.zip ? await geocoder.zip(query.zip) : null);
-    return repo.transaction(["directory"], async (tx) => {
-        const result = [];
-        for (const b of await tx.find("businesses", { status: "PUBLISHED", directory: true })) {
-            if (!b.published)
-                continue;
-            const publicPoint = b.addressPublic ? b : await geocoder.zip(b.zip);
-            const offerings = (await tx.find("offerings", { businessId: b.id })).filter(o => o.active);
-            const matching = offerings.filter(o => (!query.text || (b.category + " " + o.name + " " + o.description).toLowerCase().includes(query.text.toLowerCase())) && o.configurations.some(c => b.modes.includes(c.mode) && (!query.mode || c.mode === query.mode) && (!query.fulfillment || c.fulfillments.includes(query.fulfillment as "MOBILE" | "STOREFRONT")) && (!point || query.fulfillment !== "MOBILE" || distanceMiles(point, publicPoint) <= c.radiusMiles + 5)));
-            if (!matching.length)
-                continue;
-            result.push({ slug: b.slug, name: b.name, category: b.category, city: b.city, distance: point ? Math.round(distanceMiles(point, publicPoint) / 5) * 5 : null, offerings: matching.map(o => ({ name: o.name, modes: o.configurations.filter(c => b.modes.includes(c.mode)).map(c => c.mode) })) });
+    const result: {slug:string;name:string;category:string;city:string;distance:number|null;offerings:{name:string;modes:import("./model").BusinessMode[]}[]}[] = [];
+    let afterId: string | undefined;
+    const centroids = new Map<string,Point>();
+    while (true) {
+        const page = await repo.transaction([], async tx => {
+            const businesses = await tx.find("businesses", {status:"PUBLISHED",directory:true}, {limit:100,afterId});
+            const offerings = businesses.length ? await tx.find("offerings", {active:true}, {oneOf:{field:"businessId",values:businesses.map(b=>b.id)}}) : [];
+            return {businesses,offerings};
+        });
+        for (const b of page.businesses) {
+            if (!b.published) continue;
+            let publicPoint: Point = b;
+            if (!b.addressPublic && point) {
+                publicPoint = b.discoveryPoint ?? centroids.get(b.zip) ?? await geocoder.zip(b.zip);
+                if (centroids.size < 1000) centroids.set(b.zip, publicPoint);
+            }
+            const matching = page.offerings.filter(o => o.businessId === b.id && (!query.text || (b.category + " " + o.name + " " + o.description).toLowerCase().includes(query.text.toLowerCase())) && o.configurations.some(c => b.modes.includes(c.mode) && (!query.mode || c.mode === query.mode) && (!query.fulfillment || c.fulfillments.includes(query.fulfillment as "MOBILE" | "STOREFRONT")) && (!point || query.fulfillment !== "MOBILE" || distanceMiles(point, publicPoint) <= c.radiusMiles + 5)));
+            if (!matching.length) continue;
+            result.push({slug:b.slug,name:b.name,category:b.category,city:b.city,distance:point ? Math.round(distanceMiles(point,publicPoint)/5)*5 : null,offerings:matching.map(o=>({name:o.name,modes:o.configurations.filter(c=>b.modes.includes(c.mode)).map(c=>c.mode)}))});
         }
-        return result.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0) || a.name.localeCompare(b.name)).slice(0, 100);
-    });
+        result.sort((a,b)=>(a.distance??0)-(b.distance??0)||a.name.localeCompare(b.name));
+        result.splice(100);
+        if (page.businesses.length<100) break;
+        afterId=page.businesses.at(-1)!.id;
+    }
+    return result;
 }
 export function subdomainSlug(host: string, baseHost = "jobfray.com"): string | null {
     const normalized = host.toLowerCase().split(":")[0] ?? "";

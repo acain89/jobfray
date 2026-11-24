@@ -7,15 +7,14 @@ export function AuthForm({ mode }: {
     mode: "login" | "register" | "recover" | "verify-email" | "reset-password";
 }) {
     const router = useRouter();
-    const [message, setMessage] = useState(""), [error, setError] = useState(""), [busy, setBusy] = useState(false), [sandbox, setSandbox] = useState(false), [token, setToken] = useState("");
+    const [message, setMessage] = useState(""), [error, setError] = useState(""), [busy, setBusy] = useState(false), [sandbox, setSandbox] = useState(false), [token, setToken] = useState(""), [fromLink,setFromLink] = useState(false);
     useEffect(() => {
         const value = new URLSearchParams(window.location.hash.slice(1)).get("token");
         if (value)
             history.replaceState(null, "", window.location.pathname);
         void appSession().then(s => {
             setSandbox(s.sandbox);
-            if (value)
-                setToken(value);
+            if (value) { setToken(value); setFromLink(true); }
         }).catch(() => { });
     }, []);
     const title = mode === "login" ? "Welcome back" : mode === "register" ? "Create your free business account" : mode === "recover" ? "Recover your password" : mode === "verify-email" ? "Verify your email" : "Choose a new password";
@@ -45,7 +44,7 @@ export function AuthForm({ mode }: {
         }}>
       {["login", "register", "recover"].includes(mode) && <label>Email<input name="email" type="email" autoComplete="email" required maxLength={254}/></label>}
       {["login", "register", "reset-password"].includes(mode) && <label>Password<input name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={mode === "login" ? 1 : 12} maxLength={128} required/><small>At least 12 characters for a new password.</small></label>}
-      {["verify-email", "reset-password"].includes(mode) && !token && <label>Verification token<input value={token} onChange={e => setToken(e.target.value)} autoComplete="off" required/></label>}
+      {["verify-email", "reset-password"].includes(mode) && !fromLink && <label>Verification token<input value={token} onChange={e => setToken(e.target.value)} autoComplete="off" required/></label>}
       <button className="button" disabled={busy}>{busy ? "Please wait..." : mode === "login" ? "Sign in" : mode === "register" ? "Create free account" : mode === "recover" ? "Send recovery instructions" : mode === "verify-email" ? "Verify email" : "Save new password"}</button>
       {error && <p role="alert" className="error-text">{error}</p>}{message && <p role="status">{message}</p>}
     </form>

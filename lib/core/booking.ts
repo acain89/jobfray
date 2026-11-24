@@ -6,7 +6,7 @@ import type { Geocoder, PaymentAdapter } from "./providers";
 import { distanceMiles } from "./providers";
 import { AppError, selection, string } from "./validation";
 import { hash, contactProof, enqueue, audit, ownerScope } from "./security";
-import { checkSchedule, localInstant, localParts, operatingWindows } from "./time";
+import { checkSchedule, localInstant, localParts, operatingWindows, startOfDay, addDays } from "./time";
 import { calculatePlatformFee, PRICING_POLICY_VERSION } from "../server/fees";
 import { assertCapacity } from "../domain/capacity";
 import { integer } from "../domain/validation";
@@ -27,11 +27,11 @@ export interface CheckoutResult {
     status: RequestRecord["status"];
 }
 export class BookingService {
-    constructor(readonly repo: Repository, readonly geocoder: Geocoder, readonly payments: PaymentAdapter, private confirmationKey: string) {
-        if (confirmationKey.length < 32)
-            throw new Error("Confirmation key is too short");
+    constructor(readonly repo: Repository, readonly geocoder: Geocoder, readonly payments: PaymentAdapter, private confirmationKey: string, private keyVersion = "v1", private previousKeys: Readonly<Record<string,string>> = {}) {
+        if (confirmationKey.length < 32 || !/^[a-z0-9-]{1,40}$/.test(keyVersion) || Object.entries(previousKeys).some(([id,key])=>!(/^[a-z0-9-]{1,40}$/.test(id))||typeof key!=="string"||key.length<32))
+            throw new Error("Invalid confirmation signing configuration");
     }
-    private confirmationToken(id: string) { return createHmac("sha256", this.confirmationKey).update("confirmation:" + id).digest("base64url"); }
+    private confirmationToken(id: string, version = this.keyVersion) { const key=version===this.keyVersion?this.confirmationKey:this.previousKeys[version];if(!key)throw new AppError("Historical confirmation key is unavailable",503);return createHmac("sha256", key).update("confirmation:" + id).digest("base64url"); }
     async checkout(input: unknown, proof: string, key: string, now: Date): Promise<CheckoutResult> {
         const s = selection(input);
         string(key, 100);
@@ -42,11 +42,11 @@ export class BookingService {
                 if (previous.payloadHash !== payloadHash)
                     throw new AppError("Idempotency key was used with a different request", 409);
                 const snap = (await tx.find("snapshots", { businessId: s.businessId, requestId: previous.id }))[0]!;
-                return { requestId: previous.id, confirmationToken: this.confirmationToken(previous.id), snapshot: snap, status: previous.status };
+                return { requestId: previous.id, confirmationToken: this.confirmationToken(previous.id,previous.confirmationKeyVersion??"v1"), snapshot: snap, status: previous.status };
             }
             return null;
         };
-        const cached = await this.repo.transaction(["tenant:" + s.businessId], async (tx) => { await contactProof(tx, proof, s.contact.phone, now); return replay(tx); });
+        const cached = await this.repo.transaction([], async (tx) => { await contactProof(tx, proof, s.contact.phone, now); return replay(tx); });
         if (cached)
             return cached;
         // No provider call occurs before contact verification or on a historical replay.
@@ -86,7 +86,7 @@ export class BookingService {
                 timing = checkSchedule(s, config, resource.hours, business.timeZone, now);
                 const allocation: Allocation = { id: randomUUID(), businessId: business.id, requestId: id, resourceId: resource.id, start: timing.occupiedStart, end: timing.occupiedEnd,
                     units: config.mode === "RENTAL" ? s.quantity : config.mode === "RESERVATION" && config.capacityUnit === "PERSON" ? s.partySize : 1, status: "HELD", expiresAt };
-                capacity(await tx.find("allocations", { businessId: business.id, resourceId: resource.id }), allocation, resource.capacity, now);
+                capacity(await tx.find("allocations", { businessId: business.id, resourceId: resource.id }, { ranges: [{field:"end",operator:"gt",value:allocation.start},{field:"start",operator:"lt",value:allocation.end}] }), allocation, resource.capacity, now);
                 // Request is inserted before its allocation below to satisfy database foreign keys.
                 const request = this.request(s, id, expiresAt, hash(token), business, timing, offering.name, now, config.mode === "RESERVATION" ? config.arrivalInstructions : "");
                 await tx.put("requests", { ...request, idempotencyKey: key, payloadHash });
@@ -118,10 +118,10 @@ export class BookingService {
         address: string;
         timeZone: string;
     }, timing: ReturnType<typeof checkSchedule> | null, offeringName: string, now: Date, instructions: string): RequestRecord {
-        return { id, businessId: b.id, offeringId: s.offeringId, mode: s.mode, fulfillment: s.fulfillment, idempotencyKey: "", payloadHash: "", paymentIntentId: null, status: "PENDING_PAYMENT", payment: "CREATED", start: timing?.start ?? null, end: timing?.end ?? null, expiresAt, contact: s.contact, photos: s.photos, confirmationHash, reference: "JF-" + randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase(), offeringName, businessName: b.name, businessPhone: b.phone, businessEmail: b.email, businessAddress: s.fulfillment === "STOREFRONT" ? b.address : "", timeZone: b.timeZone, instructions, createdAt: now.toISOString(), confirmedAt: null, priceLabel: "", refundReason: null };
+        return { id, businessId: b.id, offeringId: s.offeringId, mode: s.mode, fulfillment: s.fulfillment, idempotencyKey: "", payloadHash: "", paymentIntentId: null, status: "PENDING_PAYMENT", payment: "CREATED", start: timing?.start ?? null, end: timing?.end ?? null, expiresAt, contact: s.contact, photos: s.photos, confirmationHash, confirmationKeyVersion:this.keyVersion, reference: "JF-" + randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase(), offeringName, businessName: b.name, businessPhone: b.phone, businessEmail: b.email, businessAddress: s.fulfillment === "STOREFRONT" ? b.address : "", timeZone: b.timeZone, instructions, createdAt: now.toISOString(), confirmedAt: null, priceLabel: "", refundReason: null };
     }
     async slots(businessId: string, offeringId: string, mode: string, fulfillment: string, date: string, now: Date, partySize?: number) {
-        return this.repo.transaction(["tenant:" + businessId], async (tx) => {
+        return this.repo.transaction([], async (tx) => {
             const b = await tx.get("businesses", businessId), o = await tx.get("offerings", offeringId), c = o?.configurations.find(c => c.mode === mode);
             if (!b?.published || b.status !== "PUBLISHED" || !o?.active || o.businessId !== businessId || !c || !b.modes.includes(c.mode) || !c.fulfillments.includes(fulfillment as "MOBILE" | "STOREFRONT") || c.mode === "QUOTE")
                 throw new AppError("Offering not available", 404);
@@ -130,7 +130,13 @@ export class BookingService {
             const r = o.resourceId ? await tx.get("resources", o.resourceId) : null;
             if (!r || r.businessId !== businessId)
                 throw new AppError("Capacity not available", 404);
-            const allocations = await tx.find("allocations", { businessId, resourceId: r.id }), slots: {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new AppError("Choose a date");
+            const firstDate=localParts(now.getTime(),b.timeZone).date;
+            let validDate=false;try{validDate=addDays(date,0)===date;}catch{}
+            if(!validDate || date<firstDate || date>addDays(firstDate,29))throw new AppError("Choose a date within the 30-calendar-day window");
+            const dayStart = startOfDay(date,b.timeZone), dayEnd = startOfDay(addDays(date,1),b.timeZone);
+            const before = c.mode === "SERVICE" ? c.bufferBefore : 0, after = c.mode === "SERVICE" ? c.durationMinutes + c.bufferAfter : c.slotMinutes;
+            const allocations = await tx.find("allocations", { businessId, resourceId: r.id }, { oneOf:{field:"status",values:["HELD","CONFIRMED"]}, ranges: [{field:"end",operator:"gt",value:new Date(dayStart-before*60000).toISOString()},{field:"start",operator:"lt",value:new Date(dayEnd+after*60000).toISOString()}] }), slots: {
                 start: string;
                 end: string;
                 startLocal: string;
@@ -182,7 +188,7 @@ export class BookingService {
     }
     async paymentEvent(payload: string, signature: string, now: Date) {
         const event = this.payments.verify(payload, signature);
-        const businessId = await this.repo.transaction(["event-read"], async (tx) => (await tx.get("requests", event.requestId))?.businessId);
+        const businessId = await this.repo.transaction([], async (tx) => (await tx.get("requests", event.requestId))?.businessId);
         if (!businessId)
             throw new AppError("Unknown payment request", 404);
         return this.repo.transaction(["tenant:" + businessId, "payment:" + event.paymentId], async (tx) => {
@@ -204,9 +210,10 @@ export class BookingService {
             if (paid)
                 return { status: request.status };
             const allocations = await tx.find("allocations", { businessId, requestId: request.id });
+            const missingAllocation = request.mode !== "QUOTE" && allocations.length !== 1;
             const expired = Date.parse(request.expiresAt) <= now.getTime() || allocations.some(a => a.status !== "HELD");
             const business = await tx.get("businesses", businessId);
-            const failure = event.amountCents !== snapshot.platformFeeCents ? "PAYMENT_AMOUNT_MISMATCH" : prior ? "DUPLICATE_CHARGE" : request.status !== "PENDING_PAYMENT" || expired ? "HOLD_EXPIRED" : business?.status !== "PUBLISHED" ? "BUSINESS_UNAVAILABLE" : null;
+            const failure = missingAllocation ? "JF_ALLOCATION_MISSING" : event.amountCents !== snapshot.platformFeeCents ? "PAYMENT_AMOUNT_MISMATCH" : prior ? "DUPLICATE_CHARGE" : request.status !== "PENDING_PAYMENT" || expired ? "HOLD_EXPIRED" : business?.status !== "PUBLISHED" ? "BUSINESS_UNAVAILABLE" : null;
             if (failure) {
                 // Preserve a previously fulfilled confirmation if a later duplicate charge arrives.
                 if (!request.confirmedAt) {
@@ -224,6 +231,7 @@ export class BookingService {
                     await tx.put("allocations", { ...a, status: "CONFIRMED", expiresAt: null });
                 request.status = request.mode === "QUOTE" ? "DELIVERED" : "CONFIRMED";
                 request.payment = "SUCCEEDED";
+                request.settledPaymentId = event.paymentId;
                 request.confirmedAt = now.toISOString();
                 request.priceLabel = snapshot.priceLabel;
                 for (const id of request.photos) {
@@ -234,7 +242,7 @@ export class BookingService {
                 await enqueue(tx, { businessId, destination: (await tx.get("accounts", business!.ownerId))!.email, channel: "EMAIL", kind: "CONFIRMED_REQUEST", body: `${request.reference}: ${request.offeringName}. Open your authenticated JobFray dashboard for details.`, key: "confirmed-email:" + request.id }, now);
                 if (business?.pushEnabled)
                     await enqueue(tx, { businessId, destination: business.ownerId, channel: "PUSH", kind: "CONFIRMED_REQUEST", body: "A new request is available in your dashboard.", key: "confirmed-push:" + request.id }, now);
-                await enqueue(tx, { businessId, destination: request.contact.phone, channel: "SMS", kind: "CUSTOMER_CONFIRMATION", body: "/confirmation#access=" + this.confirmationToken(request.id), key: "confirmation:" + request.id }, now);
+                await enqueue(tx, { businessId, destination: request.contact.phone, channel: "SMS", kind: "CUSTOMER_CONFIRMATION", body: "/confirmation#access=" + this.confirmationToken(request.id,request.confirmationKeyVersion??"v1"), key: "confirmation:" + request.id }, now);
                 await audit(tx, businessId, "REQUEST_CONFIRMED", "PAYMENT", now, request.id);
             }
             await tx.put("requests", request);
@@ -242,7 +250,7 @@ export class BookingService {
         });
     }
     async confirmation(token: string) {
-        return this.repo.transaction(["confirmation"], async (tx) => {
+        return this.repo.transaction([], async (tx) => {
             const request = (await tx.find("requests", { confirmationHash: hash(token) }))[0];
             if (!request)
                 throw new AppError("Confirmation not found", 404);
@@ -253,11 +261,11 @@ export class BookingService {
         });
     }
     async reconcile(now: Date) {
-        const tenants = await this.repo.transaction(["reconcile-list"], async (tx) => [...new Set((await tx.find("requests", { status: "PENDING_PAYMENT" })).map(r => r.businessId))]);
+        const tenants = await this.repo.transaction([], async (tx) => [...new Set((await tx.find("requests", { status: "PENDING_PAYMENT" }, {limit:100,ranges:[{field:"expiresAt",operator:"lte",value:now.toISOString()}]})).map(r => r.businessId))]);
         let count = 0;
         for (const businessId of tenants)
             await this.repo.transaction(["tenant:" + businessId], async (tx) => {
-                for (const r of await tx.find("requests", { businessId, status: "PENDING_PAYMENT" }))
+                for (const r of await tx.find("requests", { businessId, status: "PENDING_PAYMENT" }, {limit:100,ranges:[{field:"expiresAt",operator:"lte",value:now.toISOString()}]}))
                     if (Date.parse(r.expiresAt) <= now.getTime()) {
                         await tx.put("requests", { ...r, status: "EXPIRED" });
                         for (const a of await tx.find("allocations", { businessId, requestId: r.id }))
@@ -288,10 +296,10 @@ export class BookingService {
 }
 export async function deliverNotifications(repo: Repository, transport: import("./providers").NotificationTransport, now: Date) {
     const batch = await repo.transaction(["outbox-worker"], async (tx) => {
-        const rows = [...await tx.find("outbox", { state: "PENDING" }), ...await tx.find("outbox", { state: "SENDING" })].filter(r => r.state !== "SENT" && Date.parse(r.availableAt) <= now.getTime() && (!r.leaseUntil || Date.parse(r.leaseUntil) <= now.getTime())).slice(0, 50);
-        for (const row of rows)
-            await tx.put("outbox", { ...row, state: "SENDING", leaseUntil: new Date(now.getTime() + 60000).toISOString() });
-        return rows;
+        const rows = [...await tx.find("outbox", { state: "PENDING" }, {limit:50,ranges:[{field:"availableAt",operator:"lte",value:now.toISOString()}]}), ...await tx.find("outbox", { state: "SENDING" }, {limit:50,ranges:[{field:"availableAt",operator:"lte",value:now.toISOString()},{field:"leaseUntil",operator:"lte",value:now.toISOString()}]})].filter(r => r.state !== "SENT" && Date.parse(r.availableAt) <= now.getTime() && (!r.leaseUntil || Date.parse(r.leaseUntil) <= now.getTime())).slice(0, 50);
+        const leased = rows.map(row=>({...row,state:"SENDING" as const,leaseUntil:new Date(now.getTime()+60000).toISOString(),leaseToken:randomUUID()}));
+        for (const row of leased) await tx.put("outbox",row);
+        return leased;
     });
     for (const row of batch) {
         let sent = false;
@@ -302,7 +310,7 @@ export async function deliverNotifications(repo: Repository, transport: import("
         catch { /* no payloads or private data in logs */ }
         await repo.transaction(["outbox:" + row.id], async (tx) => {
             const current = await tx.get("outbox", row.id);
-            if (!current || current.state === "SENT")
+            if (!current || current.state === "SENT" || current.leaseToken !== row.leaseToken)
                 return;
             await tx.put("outbox", { ...current, state: sent ? "SENT" : "PENDING", attempts: current.attempts + 1, leaseUntil: null, availableAt: new Date(now.getTime() + Math.min(3600000, 30000 * 2 ** Math.min(current.attempts, 7))).toISOString() });
         });
