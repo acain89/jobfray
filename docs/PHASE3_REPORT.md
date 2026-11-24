@@ -125,7 +125,8 @@ installed sharp decoder was declared directly in package metadata/lockfile.
 
 ## Commits
 
-Implementation: the local commit introducing this report and its associated application changes. Its SHA is recorded in the subsequent report-only commit.
+- `16c50ae2c88acf6b5aa95bccf23ea46f227a8e49` - functional application, schema/repository work, tests, policy updates and this verification report.
+- The following report-only commit records the implementation SHA; application source and executed verification results are unchanged.
 
 ## Changed files
 
