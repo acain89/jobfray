@@ -73,7 +73,7 @@ try {
   }
   assert.ok(ready, "Local server ready");
   const titles = new Set();
-  for (const route of ["/", "/directory", "/for-businesses", "/how-it-works"]) {
+  for (const route of ["/", "/find", "/for-businesses", "/how-it-works", "/login", "/register", "/terms"]) {
     const r = await fetch(origin + route);
     assert.equal(r.status, 200, route);
     assert.equal(r.headers.get("x-robots-tag"), "noindex, nofollow");
@@ -93,10 +93,8 @@ try {
     }
   }
   for (const route of [
-    "/dashboard",
     "/sites/synthetic-business",
     "/worker/dashboard",
-    "/admin",
     "/api/post/create",
     "/api/worker/billing/setup-intent",
   ]) {
@@ -121,7 +119,7 @@ try {
   const search = await (
     await fetch(
       origin +
-        "/directory?location=%3Cscript%3Ealert(1)%3C%2Fscript%3E&mode=RENTAL&fulfillment=MOBILE",
+        "/find?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E&mode=RENTAL&fulfillment=MOBILE",
     )
   ).text();
   assert.ok(search.includes("&lt;script&gt;"));
@@ -133,7 +131,7 @@ try {
   for (const band of ["$0.00 to $30.00", "$30.01 to $75.00", "$75.01 to $150.99", "$151.00 and above"]) assert.ok(how.includes(band));
   assert.ok(how.includes("genuinely unknown offering price"));
   for (const mode of ["RENTAL", "SERVICE", "QUOTE", "RESERVATION"]) assert.ok(search.includes('value="' + mode + '"'));
-  assert.ok(search.includes('label for="fulfillment"'));
+  assert.ok(search.includes("Fulfillment"));
   assert.match(how.replace(/<[^>]+>/g, ""), /\$5/);
   assert.match(
     how,

@@ -8,8 +8,9 @@ export function SiteHeader() {
           JobFray<span aria-hidden="true">.</span>
         </Link>
         <nav aria-label="Main navigation">
-          <Link href="/directory">Directory</Link>
+          <Link href="/find">Find a business</Link>
           <Link href="/for-businesses">For businesses</Link>
+          <Link href="/login">Business sign in</Link>
           <Link href="/how-it-works">How it works</Link>
         </nav>
       </div>
@@ -20,8 +21,9 @@ export function SiteFooter() {
   return (
     <footer className="site-footer">
       <div className="container footer-inner">
-        <p>JobFray ? Local businesses, direct connections.</p>
+        <p>JobFray / Local businesses, direct connections.</p>
         <Link href="/how-it-works">About fees and payments</Link>
+        <Link href="/terms">Draft Terms and privacy</Link>
       </div>
     </footer>
   );

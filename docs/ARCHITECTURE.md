@@ -1,115 +1,109 @@
-# Four-mode architecture
+# Phase 3 application architecture
 
-## Shared boundaries
+## Implemented layers
 
-`app/` owns public server-rendered presentation and a liveness-only GET endpoint.
-`lib/domain/` owns validated domain contracts and policies without provider/ORM
-imports. `lib/server/` uses Node-only imports for checkout orchestration, fee
-snapshots and schema projections; never import those modules into Client Components.
-There are no provider dependencies, persistence adapters or public write endpoints.
+`lib/core/model.ts` is the application aggregate model; `validation.ts` validates
+untrusted commands and `documents.ts` validates stored JSON on adapter reads.
+Business modes and fulfillment reuse the Phase 2 domain primitives. The original
+pure capacity checker and single fee calculator remain shared across modes.
+Phase 2 standalone contracts/tests remain regression references; HTTP application
+commands are implemented by `lib/core/business.ts`, `security.ts`, `booking.ts`,
+`media.ts` and `administration.ts`.
 
-Businesses independently enable RENTAL, SERVICE, QUOTE and RESERVATION. The proposed
-business-mode relation retains disabled configuration rows to preserve history.
-One offering has one configuration per applicable mode. Fulfillment is an independent
-set: MOBILE, STOREFRONT or both. BOTH is not a third delivery choice and REMOTE is
-not part of this approved scope. A request selects exactly one supported option.
-An empty business mode set is allowed for setup; an active usable offering requires
-at least one enabled configuration. Disabling modes blocks new transactions, not
-historical reads or fulfillment of existing obligations.
+`Repository.transaction` supplies generic typed aggregate repositories. Memory is a
+rollback-capable test adapter; FileRepository is an explicitly local, durable sandbox
+adapter with atomic replacement and inter-process lock. PrismaRepository is the
+production adapter with parameter-bound queries, relational indexed identity keys,
+JSON documents and serializable transactions. It was generated/typechecked but was
+NOT executed against PostgreSQL. Database activation requires two explicit gates.
 
-## Domain and schema alignment
+The lock discipline sorts application lock keys. All scheduling, capacity and owner
+availability mutations share the same tenant advisory lock, which is deliberately
+stronger/simpler than separate resource locks and serializes competing offerings
+inside a business. Different businesses remain independent. SQL constraints/FKs
+and immutable triggers are supplied as unapplied review artifacts. Database races
+and operational performance remain unverified until an isolated database is allowed.
 
-Offering configurations and requests are discriminated unions with runtime parsers.
-Quote configurations have no schedule; quote requests reject scheduling fields.
-A requested assessment appointment must be a separate scheduled request. Service
-has optional explicit timing; Rental has an optional duration unit; Reservation has
-an optional capacity unit. Null means unresolved and cannot authorize scheduling.
-The schema uses enum/typed nullable columns, not arbitrary configuration JSON;
-`mapOfferingModeRow` rejects cross-mode fields, incomplete known prices and unsafe
-BigInt conversion. Missing known prices must never fall back to UNKNOWN.
+## Authentication and privacy
 
-## Tenant isolation
+Scrypt hashes use random salts, N=32768/r=8/p=1, 64-byte keys and constant-time
+comparison. Hashing concurrency/queue is bounded. New passwords require 12-128
+characters and preserve whitespace. Verification/recovery tokens and sessions are
+random, hashed at rest, expiring and single-use where applicable. Recovery revokes
+all sessions/reset tokens. Host-only HttpOnly/SameSite cookies use __Host- prefixes
+and Secure in production. Origin plus double-submit CSRF protection covers writes.
+Rate buckets and bounded bodies/uploads reduce abuse; no private payload logging.
 
-A future session adapter must verify identity, expiry and revocation before creating
-a tenant scope from active membership. Branded TypeScript IDs are not authentication.
-Every repository operation must include verified business ID, including notifications,
-resources, idempotency lookup and checkout history. Composite foreign keys bind
-business-owned references. Public readers return only published projections and
-never expose customer contacts, allocations, owner identity or payment records.
-Exact normalized verified hostname resolution is separate from owner authorization;
-never trust caller-supplied business IDs or forwarded Host as identity.
+Every private application read/write verifies the session and owner business. Public
+site/directory projections omit owner identity, contact/confirmation/payment data,
+private base coordinates and nonpublic address. Private base discovery uses public
+ZIP centroids/coarse distance; exact mobile eligibility is geocoded before checkout.
+Contact verification produces a short-lived phone-bound proof, not a customer account.
 
-## Resources, availability and holds
+Images are preauthorized, limited to 5 MB/24 megapixels, magic-byte checked, decoded,
+rotated, resized and re-encoded as WebP with metadata stripped. Decoding is bounded.
+Business images require owner access unless explicitly referenced by a published
+site/offering. Quote images require paid confirmation before business access.
+Unsubmitted quote images expire after 24 hours; confirmed images after 180 days.
+The cleanup service removes expired image bytes but retains financial/confirmation
+history. Production storage encryption, deletion procedures and retention/legal
+review remain release requirements. Inline media is for the local review adapter;
+an authorized object-storage adapter is needed before production media scale.
 
-Resources represent shared capacity; multiple offerings and modes can reference the
-same resource. Requirements specify units per selected quantity. Calendar rules
-and replacement exceptions belong to resources; an empty exception closes the day.
-Policy explicitly supplies horizon, minimum lead time, hold duration and version;
-there is no universal 14-day horizon. Business-local dates/time zones and UTC
-allocation instants remain separate. UTC intervals are half-open `[start, end)`.
+## Scheduling and payment lifecycle
 
-`assertCapacity` validates tenant/resource identity, positive safe units and intervals,
-counts live holds and confirmed allocations, ignores expired holds and released
-allocations, and sweeps interval events to find true concurrent occupancy. Different
-request IDs share the same capacity. Adjacent intervals do not overlap. It does not
-expand calendars, select assets, calculate travel, determine rental rounding, or
-write bookings. It is not a standalone concurrency guarantee.
+One shared engine: exactly 30 business-local calendar dates, exactly 15-minute holds,
+minimum notice, resource calendars/exceptions, blocked occupancy and UTC persistence.
+DST gaps are rejected, folds require earlier/later selection, and day boundaries
+handle midnight transitions. Service slots check duration/buffers against hours;
+overnight rental/reservation occupancy checks pickup/return/arrival opening endpoints
+without requiring continuous opening. Whole daily rental units use local day counts;
+hourly units use elapsed time. Per-night reservation billing uses local date counts.
 
-A future AllocationStore adapter MUST atomically lock all required resources in
-stable order, inspect overlapping allocations across ALL offerings, check opening
-windows and approved mode policy, expire/reconcile holds, check capacity and write
-request/allocation state together. Confirmation, cancellation, rescheduling and
-capacity/availability edits need the same locks and transactional discipline.
-Database concurrency tests are a later gate; there is no in-memory booking store.
+Checkout verifies customer proof, publication/enabled mode, offering, fulfillment,
+address/radius, photos and selection; checks all shared-pool overlaps; writes pending
+request, held allocation and immutable snapshot atomically. Quotes have no allocations.
+Existing confirmed obligations are not rewritten by catalog/calendar edits. Customer
+idempotency keys are scoped to business and normalized selection hashes.
 
-## Server-authoritative fees and history
+Payment intent creation has a stable idempotency key and persists the provider intent
+identity. Verified events bind intent, charge, request, amount and currency. Events,
+confirmation, allocation transition, audit and outbox are one transaction. Replays
+are durable and cannot duplicate delivery/booking. Interrupted transactions roll back
+and can be retried. Delayed payments on expired holds enter refund-required state,
+never consume reallocated capacity. Second verified charges on one intent create
+remediation while preserving the original earned confirmation. Administrative
+legal/provider/discretionary refund records are explicit; cancellation/release does
+not automatically refund. Real provider checkout/webhooks are not publicly exposed.
 
-Website creation/operation is free, without subscriptions, business commissions or
-Stripe Connect. Customers pay businesses directly for underlying offerings. JobFray
-collects only its own customer-paid USD platform fee and pays its processing costs.
+Notification outbox claims use expiring leases, retry/backoff and stable delivery
+keys. Verified-owner email is mandatory; optional push queues through the same port.
+A failed delivery cannot remove the authoritative dashboard record. Production
+workers/transports and provider idempotency semantics require separate verification.
 
-`calculatePlatformFee` in `lib/server/fees.ts` is the only fee calculator:
-0 to 3000 -> 200; 3001 to 7500 -> 300; 7501 to 15099 -> 400; 15100+ -> 500 cents.
-QUOTE and explicitly UNKNOWN prices -> 300 cents. Even quotes reject malformed
-monetary inputs. Zero is known, not unknown. All monetary inputs and intermediate
-products must be nonnegative safe integers; fractional cents and overflow fail.
+Confirmation capabilities are HMAC-derived opaque secrets, hashed in requests and
+carried in URL fragments that are removed before exchanging for an HttpOnly cookie.
+No predictable reference grants private access. Pending/refund-required receipts do
+not expose business contacts or customer facts. Scheduled confirmations export ICS
+without customer address/phone data. Owner release changes operational capacity only.
 
-Stored pricing explicitly selects FIXED, QUANTITY or rental-only QUANTITY_DURATION.
-FIXED permits only quantity 1 and no duration; QUANTITY multiplies the quantity;
-QUANTITY_DURATION multiplies unit price, quantity and positive integer duration units.
-The last basis needs an explicit stored HOUR/DAY unit. API adapters must derive or
-verify billable duration against an approved interval/rounding policy; browser units
-are never authoritative. No date-to-duration or rental rounding policy is invented.
-Unknown must be an explicitly valid catalog state, never missing/invalid input.
+## UI and routes
 
-`createCheckoutSnapshot` rejects fee/subtotal overrides and unsupported modes or
-fulfillments. It freezes a primitive-only snapshot containing original subtotal,
-fee, unit amount, basis, quantity, duration, mode, fulfillment and policy version.
-`prepareCheckout` adds request-locked, payload-hashed idempotency through a storage
-port. Identical replay returns saved facts before consulting current catalog;
-conflicting payload/key or tenant mismatch fails. The adapter must authorize the
-request, bind catalog to its offering, verify selected request facts and persist
-snapshot/order atomically. This phase supplies no database implementation.
+- `/register`, `/login`, `/verify-email`, `/recover`, `/reset-password`.
+- One `/dashboard` for onboarding, offerings, shared availability, content/design,
+  publication/share, requests/history and notifications.
+- Builder has curated palettes (10 each), five type styles, three button shapes,
+  live preview, debounced serialized autosave, conflict detection, retry and draft
+  flush before state-changing operations. Unsaved changes warn on page unload.
+- `/find` is the canonical directory; `/directory` redirects there.
+- `/sites/[slug]`, `/request/[slug]/[offeringId]`, `/confirmation`, private media and
+  calendar routes. Proxy dispatches exact public subdomain slugs only; owner auth
+  remains application-layer authorization. No DNS/certificate operation is performed.
+- `/admin` requires a verified account in the explicit administrator allowlist for
+  business suspension and remediation. No live money movement exists.
+- `/sandbox/inbox` and mock-pay are loopback-only, explicit-sandbox-only facilities.
+  Production defaults fail closed. Noindex remains intentional until release review.
 
-Snapshots are insert-only accepted facts; never update them on catalog edits or
-reprice history. Adapter privileges and a reviewed immutable-row database control
-are required before persistence launches. Payment state belongs to the fee order,
-not the request or snapshot. Unknown-price quotes are not forced into an
-AWAITING_PAYMENT request state. Settlement, event verification, refund ordering and
-capacity confirmation remain separate approved workflows to implement later.
-
-## Route and mobile architecture
-
-Keep one `/directory`, business website route `/sites/[slug]` and `/dashboard`.
-Directory mode/fulfillment filters must match the same active offering configuration,
-with business + website publication and enabled business mode enforced by future
-read adapters. No separate four-mode application stacks. Future public request
-commands should resolve a published offering and selected mode server-side;
-shared application services dispatch validated mode-specific data. Owner operations
-must authenticate before any tenant lookup or write.
-
-The shell and native GET form work without client JavaScript. Controls are labeled,
-48px high and stack on narrow screens. The fee table has caption and scoped headers.
-Keep mode-specific transaction inputs progressive: rental range/quantity, service
-time/location, quote requirements, reservation date/capacity. No transaction UI or
-browser accessibility audit is claimed. Noindex remains deliberate during development.
+Native browser inspection covered the public desktop and 390px-emulated layout and
+accessibility tree. Automated HTTP workflows cover application routes. This does
+not constitute an exhaustive browser, screen-reader or accessibility certification.

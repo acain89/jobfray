@@ -1,6 +1,4 @@
-import { notFound } from "next/navigation";
-// Fail closed until verified owner sessions and tenant-scoped readers exist.
-export const dynamic = "force-dynamic";
-export default function DashboardPage(): never {
-  notFound();
-}
+import { Dashboard } from "@/components/core/Dashboard";
+export const dynamic="force-dynamic";
+export const metadata={title:"Business dashboard",robots:{index:false,follow:false}};
+export default function DashboardPage(){return <Dashboard/>;}

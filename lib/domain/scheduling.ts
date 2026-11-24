@@ -2,7 +2,8 @@ import type { AvailabilityException, AvailabilityRule, SchedulingPolicy } from "
 import { businessMode, count, integer, text } from "./validation";
 export function validateSchedulingPolicy(policy: SchedulingPolicy): void {
   if (businessMode(policy.mode) === "QUOTE") throw new Error("Quote requests are unscheduled");
-  count(policy.horizonDays); count(policy.minimumLeadMinutes, 0); count(policy.holdMinutes);
+  if(policy.horizonDays!==30 || policy.holdMinutes!==15)throw new Error("Universal policy requires 30 calendar days and 15-minute holds");
+  count(policy.minimumLeadMinutes, 0);
   text(policy.version);
 }
 export function validateAvailabilityRule(rule: AvailabilityRule): void {

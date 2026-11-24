@@ -314,3 +314,177 @@ model WorkerInterest {
   @@index([postId, status])
   @@index([workerId, status])
 }
+
+// PHASE 3 ADDITIVE MODELS. Validation/client generation only; no database was connected.
+// Documents contain runtime-validated aggregate fields; indexed keys/constraints are relational.
+enum JfBusinessMode {
+  RENTAL
+  SERVICE
+  QUOTE
+  RESERVATION
+}
+enum JfFulfillment {
+  MOBILE
+  STOREFRONT
+}
+model JfAccount {
+  id String @id
+  email String @unique
+  document Json
+  sessions JfSession[]
+  business JfBusiness?
+}
+model JfSession {
+  id String @id
+  accountId String
+  tokenHash String @unique
+  expiresAt DateTime @db.Timestamptz(3)
+  document Json
+  account JfAccount @relation(fields:[accountId],references:[id],onDelete:Restrict)
+  @@index([accountId,expiresAt])
+}
+model JfToken {
+  id String @id
+  hash String @unique
+  purpose String
+  expiresAt DateTime @db.Timestamptz(3)
+  document Json
+  @@index([purpose,expiresAt])
+}
+model JfBusiness {
+  id String @id
+  ownerId String @unique
+  slug String @unique
+  status String
+  document Json
+  owner JfAccount @relation(fields:[ownerId],references:[id],onDelete:Restrict)
+  offerings JfOffering[]
+  resources JfResource[]
+  requests JfRequest[]
+  media JfMedia[]
+  outbox JfOutbox[]
+  audits JfAudit[]
+  @@index([status])
+}
+model JfOffering {
+  id String @id
+  businessId String
+  resourceId String?
+  document Json
+  business JfBusiness @relation(fields:[businessId],references:[id],onDelete:Restrict)
+  resource JfResource? @relation(fields:[businessId,resourceId],references:[businessId,id],onDelete:Restrict)
+  requests JfRequest[]
+  @@unique([businessId,id])
+}
+model JfResource {
+  id String @id
+  businessId String
+  capacity Int
+  document Json
+  business JfBusiness @relation(fields:[businessId],references:[id],onDelete:Restrict)
+  offerings JfOffering[]
+  allocations JfAllocation[]
+  @@unique([businessId,id])
+}
+model JfRequest {
+  id String @id
+  businessId String
+  offeringId String
+  mode String
+  status String
+  idempotencyKey String
+  payloadHash String
+  document Json
+  business JfBusiness @relation(fields:[businessId],references:[id],onDelete:Restrict)
+  offering JfOffering @relation(fields:[businessId,offeringId],references:[businessId,id],onDelete:Restrict)
+  allocations JfAllocation[]
+  snapshot JfCheckoutSnapshot?
+  events JfPaymentEvent[]
+  refunds JfRefund[]
+  audits JfAudit[]
+  @@unique([businessId,id])
+  @@unique([businessId,idempotencyKey])
+  @@index([businessId,status])
+}
+model JfAllocation {
+  id String @id
+  businessId String
+  requestId String
+  resourceId String
+  units Int
+  start DateTime @db.Timestamptz(3)
+  end DateTime @db.Timestamptz(3)
+  status String
+  expiresAt DateTime? @db.Timestamptz(3)
+  document Json
+  request JfRequest @relation(fields:[businessId,requestId],references:[businessId,id],onDelete:Restrict)
+  resource JfResource @relation(fields:[businessId,resourceId],references:[businessId,id],onDelete:Restrict)
+  @@unique([businessId,requestId,resourceId])
+  @@index([businessId,resourceId,start,end,status])
+}
+model JfCheckoutSnapshot {
+  id String @id
+  businessId String
+  requestId String
+  platformFeeCents Int
+  underlyingSubtotalCents BigInt?
+  pricingPolicyVersion String
+  document Json
+  request JfRequest @relation(fields:[businessId,requestId],references:[businessId,id],onDelete:Restrict)
+  @@unique([businessId,requestId])
+}
+model JfPaymentEvent {
+  id String @id
+  businessId String
+  requestId String
+  providerId String
+  document Json
+  request JfRequest @relation(fields:[businessId,requestId],references:[businessId,id],onDelete:Restrict)
+  @@index([providerId])
+  @@index([businessId,requestId])
+}
+model JfOutbox {
+  id String @id
+  businessId String?
+  key String @unique
+  state String
+  availableAt DateTime @db.Timestamptz(3)
+  document Json
+  business JfBusiness? @relation(fields:[businessId],references:[id],onDelete:Restrict)
+  @@index([state,availableAt])
+}
+model JfMedia {
+  id String @id
+  businessId String
+  expiresAt DateTime? @db.Timestamptz(3)
+  document Json
+  business JfBusiness @relation(fields:[businessId],references:[id],onDelete:Restrict)
+  @@index([businessId,expiresAt])
+}
+model JfAudit {
+  id String @id
+  businessId String?
+  requestId String?
+  document Json
+  business JfBusiness? @relation(fields:[businessId],references:[id],onDelete:Restrict)
+  request JfRequest? @relation(fields:[businessId,requestId],references:[businessId,id],onDelete:Restrict)
+  @@index([businessId,requestId])
+}
+model JfRateBucket {
+  id String @id
+  expiresAt DateTime @db.Timestamptz(3)
+  document Json
+  @@index([expiresAt])
+}
+
+model JfRefund {
+  id String @id
+  businessId String
+  requestId String
+  paymentId String
+  state String
+  document Json
+  request JfRequest @relation(fields:[businessId,requestId],references:[businessId,id],onDelete:Restrict)
+  @@unique([businessId,paymentId])
+  @@index([businessId,requestId])
+}

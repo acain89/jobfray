@@ -160,7 +160,7 @@ test("expired holds release capacity; live holds block; malformed allocations fa
   assert.throws(() => assertCapacity(scope, resource, [], held, now), /expired/);
 });
 test("scheduling configuration has no implicit horizon or quote calendar", () => {
-  const policy = { businessId: business, offeringId, mode: "SERVICE" as const, horizonDays: 30, minimumLeadMinutes: 0, holdMinutes: 5, version: "approved-test-policy" };
+  const policy = { businessId: business, offeringId, mode: "SERVICE" as const, horizonDays: 30, minimumLeadMinutes: 0, holdMinutes: 15, version: "approved-test-policy" };
   assert.doesNotThrow(() => validateSchedulingPolicy(policy));
   assert.throws(() => validateSchedulingPolicy({ ...policy, mode: "QUOTE" as "SERVICE" }));
   assert.throws(() => validateSchedulingPolicy({ ...policy, holdMinutes: 0 }));

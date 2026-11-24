@@ -27,7 +27,7 @@ export default function HowItWorksPage() {
     </section>
     <aside className="notice"><h2>Requests and payments are not open yet</h2>
       <p>Confirmation, rental duration, reservation capacity, cancellation and refund policies still need to be completed before these flows become available.</p>
-      <Link href="/directory">Visit the directory</Link>
+      <Link href="/find">Visit the directory</Link>
     </aside>
   </>;
 }

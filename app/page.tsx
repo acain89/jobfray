@@ -6,7 +6,7 @@ export default function HomePage() {
   return <>
     <section className="hero"><PageIntro eyebrow="A new chapter for JobFray" title="Your business. More possibilities.">
       <p>A free home for businesses offering rentals, services, quotes and reservations, with mobile and storefront options where applicable.</p>
-    </PageIntro><div className="actions"><Link className="button" href="/for-businesses">Meet the business platform</Link><Link className="text-link" href="/directory">Explore the directory</Link></div></section>
+    </PageIntro><div className="actions"><Link className="button" href="/for-businesses">Meet the business platform</Link><Link className="text-link" href="/find">Explore the directory</Link></div></section>
     <section className="section" aria-labelledby="model-heading"><div className="section-heading"><h2 id="model-heading">One platform, four business modes</h2></div>
       <div className="grid two">
         <article className="card"><h3>Rental</h3><p>Offer items for a selected rental period.</p></article>

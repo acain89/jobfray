@@ -1,72 +1,97 @@
-# JobFray four-mode foundation
+# JobFray core application
 
-Isolated rebuild based on foundation commit `4b1c7dc442e96362a3bd2f53d3d03f33837ded21`.
-Node 22, Next.js 16.4.6 App Router, React 19, strict TypeScript and Prisma 5.22.
-This is an architecture and fee-engine foundation, not a live transaction platform.
+Node 22, Next.js 16.4.6, React 19, strict TypeScript and Prisma 5.22.
+Phase 3 adds a working local application with provider-independent core services.
+Real financial checkout and production providers remain disabled.
 
-## Business model
+## Review the functional application locally
 
-Business website creation and operation are free. No subscriptions, business
-commissions or Stripe Connect. Businesses enable any combination of RENTAL,
-SERVICE, QUOTE and RESERVATION. One offering can have multiple mode configurations.
-Each configuration permits MOBILE, STOREFRONT or both. Customers pay businesses
-directly for underlying offerings. JobFray collects only customer-paid platform
-fees and bears its own Stripe processing costs.
+Use synthetic data only. No existing database or provider credentials are needed.
 
-## Platform fees (USD integer cents)
-
-| Underlying subtotal | Platform fee |
-| --- | --- |
-| 0 to 3000 cents | 200 cents |
-| 3001 to 7500 cents | 300 cents |
-| 7501 to 15099 cents | 400 cents |
-| 15100 cents or more | 500 cents |
-| Quote request or genuinely unknown price | 300 cents |
-
-`lib/server/fees.ts` is the sole calculator. Checkout derives the subtotal from
-stored catalog prices and validated quantity/duration selections, not browser
-amounts. Known zero is different from unknown. Snapshots record original cents,
-pricing basis, selections and policy version. Historical reads and retries never
-recalculate against current prices. No provider checkout is wired.
-
-## Run and verify locally
-
-```sh
-npm ci --ignore-scripts
-npm run dev
-npm test
-npm run typecheck -- --incremental false
-npm run lint
-npm run schema:validate
-npm run schema:proposal
-npm run build
-npm run test:http
+```powershell
+$env:JOBFRAY_SANDBOX='1'
+$env:JOBFRAY_PUBLIC_ORIGIN='http://127.0.0.1:3211'
+$env:NEXT_TELEMETRY_DISABLED='1'
+npm.cmd run dev -- --hostname 127.0.0.1 --port 3211
 ```
 
-On Windows PowerShell, use `npm.cmd` if script execution policy blocks `npm.ps1`.
-Schema validation requires only a synthetic unreachable local `DATABASE_URL`, such
-as the example; it does not connect to a database. Use Node's `--import` with
-`scripts/verification-network-guard.mjs` during verification to block remote and
-database networking. Do not copy production environment files into this worktree.
-No credentials are required to render the public application.
+Open `/register`, create a synthetic business account and use `/sandbox/inbox` for
+mock email verification/recovery and customer phone codes. Sign in at `/login`.
+The dashboard guides business setup, pooled capacity, offerings, website content,
+design preview, publication, QR/sharing and notification preferences.
 
-## Implemented boundary
+Mock exact-address fixtures:
 
-- Public server-rendered pages, accessible GET directory filters, development notice.
-- `/api/health` is liveness only. Owner/site routes deliberately return 404.
-- Runtime-validated offering and request unions, tenant scope checks and schema mapper.
-- Shared resource calendars, requirements, allocations and explicit scheduling policy contracts.
-- Pure capacity checks across all offerings sharing a resource, including held capacity.
-- Server fee snapshots and transactional checkout/idempotency application boundary.
-- No auth adapter, persistence, availability expansion, booking writes or live payments.
+- `100 Test Lane, Austin, TX 78701` (business location)
+- `200 Customer Lane, Austin, TX 78701` (eligible mobile customer location)
 
-Read [architecture](docs/ARCHITECTURE.md), [schema proposal](docs/SCHEMA_PROPOSAL.md),
-[Phase 2 report](docs/PHASE2_REPORT.md) and [remaining decisions](docs/PHASE2_DECISIONS.md).
-The original [foundation report](docs/FOUNDATION_REPORT.md) is historical evidence
-for the prior scope; its $3/$5 and universal 14-day assumptions are superseded.
-All legacy models, migration files and repository instructions remain unchanged
-from the original foundation. The four-mode Prisma schema remains an unapplied
-proposal, not the active database schema.
+ZIP fixtures: 78701, 60601, 10001, 94103. Unsupported addresses fail eligibility
+verification; the mock never pretends to geocode arbitrary addresses.
 
-Relevant bundled Next.js guides were read before Phase 2 changes: server/client
-components, layouts/pages and route handlers in `node_modules/next/dist/docs/`.
+Browse `/find`, open a published website, verify a synthetic customer phone, and
+review a request. The explicit mock-payment button moves no money. Protected
+confirmations reopen through fragment-based capability links in the local inbox.
+
+Sandbox persistence lives only in ignored `artifacts/phase3-runtime/`, with atomic
+file replacement and inter-process locking. It is a local verification adapter,
+not a production database. Keep its signing keys with its state for recovery.
+The sandbox must only be bound to loopback and must never be deployed publicly.
+
+## Business model and policies
+
+Business website creation/operation is free. No subscriptions, commissions,
+Connect, customer accounts, internal messaging, employee assignment management,
+taxes, discounts, extras, deposits or underlying-business payment collection.
+Four modes share a catalog, dashboard, scheduling and payment infrastructure.
+See [approved policies](docs/PHASE2_DECISIONS.md).
+
+Customer-paid JF fees (USD cents): 0-3000 -> 200; 3001-7500 -> 300;
+7501-15099 -> 400; 15100+ -> 500. Quotes/genuinely unknown prices -> 300.
+Quantity, applicable party size and rental/reservation duration enter the
+server-calculated underlying subtotal. Historical checkout snapshots are immutable.
+
+All scheduled occupancy, buffers and turnaround fit one rolling 30-local-calendar-
+day window including today. Holds last 15 minutes. DST gaps fail closed; repeated
+times require an explicit occurrence. Overnight occupancy checks operating hours
+at pickup/return/arrival endpoints, not continuously throughout an occupied stay.
+
+## Verify
+
+```powershell
+npm.cmd test
+npm.cmd run typecheck -- --incremental false
+npm.cmd run lint
+$env:DATABASE_URL='postgresql://unused:unused@127.0.0.1:9/never_connect'
+$env:CHECKPOINT_DISABLE='1'
+npm.cmd run schema:validate
+npm.cmd run schema:proposal
+npm.cmd run db:generate
+npm.cmd run build
+node scripts/http-smoke.mjs
+node scripts/phase3-smoke.mjs
+```
+
+Use `NODE_OPTIONS=--import=./scripts/verification-network-guard.mjs` to block remote
+and database networking during verification. The HTTP scripts sanitize child-server
+environments. `phase3-smoke.mjs` can also target an already running local sandbox
+via `JOBFRAY_SMOKE_ORIGIN`. It exercises all four real HTTP mock workflows.
+
+## Production remains gated
+
+The Prisma repository implements serializable transactions, stable advisory-lock
+ordering, tenant-bound foreign keys and immutable snapshot writes. No database was
+connected. `prisma/review/phase3-additive.sql` and `phase3-constraints.sql` are offline,
+unapplied REVIEW artifacts outside historical migrations. Never apply them to an
+existing database without separately authorized isolated-database verification.
+
+`JOBFRAY_DATABASE_ENABLED=1` AND `JOBFRAY_RELEASE_DB_VERIFIED=1` gate production
+repository activation. Do not set those flags for this phase. Production geocoding,
+verification delivery, payments and notifications still fail closed. A real payment
+adapter is not exposed through public HTTP routes. Object storage, notification
+workers, background reconciliation, DNS/certificates and operational/legal/security
+release checks are separate gates. The already installed `sharp` image decoder is
+now a declared direct dependency; no package download was performed.
+
+Read [architecture](docs/ARCHITECTURE.md), [database review](docs/SCHEMA_PROPOSAL.md)
+and [Phase 3 report](docs/PHASE3_REPORT.md) for executed evidence and limitations.
+Prior foundation/Phase 2 reports remain historical evidence of their earlier scope.
