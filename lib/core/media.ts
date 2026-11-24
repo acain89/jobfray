@@ -1,3 +1,4 @@
+import type { MediaStorage } from "../integrations/cloudinary";
 import sharp from "sharp";
 import { randomUUID } from "node:crypto";
 import type { Repository } from "./repository";
@@ -12,7 +13,7 @@ export async function uploadImage(repo: Repository, input: {
     session?: string | undefined;
     proof?: string | undefined;
     phone?: string | undefined;
-}, now: Date) {
+}, now: Date, storage?: MediaStorage) {
     if (input.bytes.length > 5 * 1024 * 1024 || input.bytes.length < 12)
         throw new AppError("Images must be 5 MB or smaller", 413);
     const isJpeg = input.bytes[0] === 255 && input.bytes[1] === 216 && input.bytes[2] === 255;
@@ -24,7 +25,9 @@ export async function uploadImage(repo: Repository, input: {
         if (input.kind === "BUSINESS")
             await ownerScope(tx, input.session, input.businessId, now);
         else {
-            await contactProof(tx, input.proof ?? "", input.phone ?? "", now);
+            const verified = await contactProof(tx, input.proof ?? "", input.phone ?? "", now);
+            if (storage && (verified.usedAt || !verified.context.startsWith(input.businessId + ":")))
+                throw new AppError("Upload verification belongs to another request", 403);
             if ((await tx.get("businesses", input.businessId))?.status !== "PUBLISHED")
                 throw new AppError("Business not available", 404);
         }
@@ -42,12 +45,14 @@ export async function uploadImage(repo: Repository, input: {
     finally {
         decoding--;
     }
-    return repo.transaction(["tenant:" + input.businessId], async (tx) => {
+    const result = await repo.transaction(["tenant:" + input.businessId], async (tx) => {
         let ownerId: string | null = null;
         if (input.kind === "BUSINESS")
             ownerId = (await ownerScope(tx, input.session, input.businessId, now)).accountId;
         else {
-            await contactProof(tx, input.proof ?? "", input.phone ?? "", now);
+            const verified = await contactProof(tx, input.proof ?? "", input.phone ?? "", now);
+            if (storage && (verified.usedAt || !verified.context.startsWith(input.businessId + ":")))
+                throw new AppError("Upload verification belongs to another request", 403);
             const business = await tx.get("businesses", input.businessId);
             if (business?.status !== "PUBLISHED")
                 throw new AppError("Business not available", 404);
@@ -57,8 +62,16 @@ export async function uploadImage(repo: Repository, input: {
             throw new AppError("Upload limit reached", 429);
         const id = randomUUID();
         await tx.put("media", { id, businessId: input.businessId, ownerId, proofHash: input.kind === "QUOTE" ? hash(input.proof ?? "") : null, kind: input.kind, bytes: bytes.toString("base64"), contentType: "image/webp", createdAt: now.toISOString(), expiresAt: input.kind === "QUOTE" ? new Date(now.getTime() + 86400000).toISOString() : null });
+        if (storage)
+            await tx.put("operations", { id: "media-orphan:" + id, businessId: input.businessId, kind: "MEDIA_DELETE", state: "PENDING", availableAt: new Date(now.getTime() + 3600000).toISOString(), attempts: 0, leaseUntil: null, payload: { mediaId: id, asset: { provider: "CLOUDINARY", publicId: "jobfray/" + input.businessId + "/" + id, version: 0 } } });
         return { id };
     });
+    if (storage) {
+        const asset = await storage.put(input.businessId, result.id, bytes);
+        await repo.transaction(["tenant:" + input.businessId], async (tx) => { const image = await tx.get("media", result.id); if (!image)
+            throw new AppError("Upload reservation expired", 409); await tx.put("media", { ...image, storage: asset, bytes: "" }); const job = (await tx.get("operations", "media-orphan:" + result.id))!; await tx.put("operations", { ...job, state: "DONE" }); });
+    }
+    return result;
 }
 export async function readImage(repo: Repository, id: string, sessionToken: string | undefined, confirmationToken: string | undefined, now: Date) {
     return repo.transaction([], async (tx) => {
@@ -76,7 +89,7 @@ export async function readImage(repo: Repository, id: string, sessionToken: stri
         if (sessionToken) {
             try {
                 await ownerScope(tx, sessionToken, image.businessId, now);
-                if (image.kind === "BUSINESS" || (await tx.find("requests", { businessId: image.businessId },{limit:1,containsPhoto:id,ranges:[{field:"confirmedAt",operator:"notNull"}]})).length>0)
+                if (image.kind === "BUSINESS" || (await tx.find("requests", { businessId: image.businessId }, { limit: 1, containsPhoto: id, ranges: [{ field: "confirmedAt", operator: "notNull" }] })).length > 0)
                     return image;
             }
             catch { /* do not disclose existence */ }

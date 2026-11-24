@@ -15,6 +15,7 @@ if (
     "JOBFRAY_PUBLIC_ORIGIN must be an HTTPS origin, or local HTTP for development",
   );
 }
+export const publicIndexing=process.env.JOBFRAY_PUBLIC_INDEXING_ENABLED==="1";
 export const siteOrigin = origin.origin;
 export function pageMetadata(
   title: string,
@@ -24,6 +25,7 @@ export function pageMetadata(
   return {
     title,
     description,
+    robots:{index:publicIndexing,follow:publicIndexing},
     alternates: { canonical: new URL(path, siteOrigin).toString() },
   };
 }

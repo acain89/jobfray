@@ -1,0 +1,48 @@
+# REVIEW TEMPLATE ONLY. Resource names/plans are placeholders, not deployment authorization.
+services:
+  - type: web
+    name: jobfray-new-web-placeholder
+    runtime: node
+    plan: PLACEHOLDER_APPROVED_WEB_PLAN
+    autoDeployTrigger: off
+    buildCommand: npm ci && npm run db:generate && npm run build
+    startCommand: npm run start -- --hostname 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false # APPLICATION role only. Never an automatically wired owner connection.
+      - key: JOBFRAY_DATABASE_ENABLED
+        value: "0"
+      - key: JOBFRAY_PRODUCTION_PROVIDERS
+        value: "0"
+      - key: JOBFRAY_PROVIDER_OPERATIONS_ENABLED
+        value: "0"
+      - key: JOBFRAY_CHECKOUT_ENABLED
+        value: "0"
+      - key: JOBFRAY_PUBLIC_ORIGIN
+        sync: false
+  - type: cron
+    name: jobfray-new-worker-placeholder
+    runtime: node
+    schedule: "* * * * *"
+    buildCommand: "true"
+    startCommand: node scripts/production-worker.mjs
+    envVars:
+      - key: JOBFRAY_PUBLIC_ORIGIN
+        sync: false
+      - key: JOBFRAY_BASE_HOST
+        sync: false
+      - key: JOBFRAY_WORKER_KEY
+        sync: false
+      - key: JOBFRAY_PROVIDER_OPERATIONS_ENABLED
+        value: "0"
+databases:
+  - name: jobfray-new-postgres-placeholder
+    databaseName: jobfray_new_placeholder
+    user: jobfray_migration_owner_placeholder
+    plan: PLACEHOLDER_APPROVED_DATABASE_PLAN
+    ipAllowList: []
+# Add the remaining validated variables from production.env.example before any authorized provisioning.
+# Migrations run in a separately authorized job with a distinct owner secret, never the web service.

@@ -35,6 +35,7 @@ export interface PaymentIntent {
     amountCents: number;
     currency: "USD";
     idempotencyKey: string;
+    checkoutUrl?: string;
 }
 export interface VerifiedPayment {
     eventId: string;
@@ -46,7 +47,7 @@ export interface VerifiedPayment {
 }
 export interface PaymentAdapter {
     create(input: Omit<PaymentIntent, "id">): Promise<PaymentIntent>;
-    verify(payload: string, signature: string): VerifiedPayment;
+    verify(payload: string, signature: string): VerifiedPayment | Promise<VerifiedPayment>;
 }
 /** Test adapter only. Signing material is never exposed to the browser. No financial operation. */
 export class MockPaymentAdapter implements PaymentAdapter {

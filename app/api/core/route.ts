@@ -1,5 +1,8 @@
+import { trustedPrincipal } from "@/lib/core/edge";
+import { contactBinding } from "@/lib/core/phone-verification";
+import { subscribePush, unsubscribePush } from "@/lib/core/push";
 import { cookies } from "next/headers";
-import { runtime, applicationEnabled, requireSandbox } from "@/lib/core/runtime";
+import { runtime, applicationEnabled, requireSandbox, requireCheckout } from "@/lib/core/runtime";
 import { body, response, failure, csrf, csrfResponse, COOKIE, CONFIRMATION, secure, cookieValue } from "@/lib/core/http";
 import { AppError, string, whole, phone } from "@/lib/core/validation";
 import { register, login, recover, consumeAccountToken, startContact, verifyContact, session, ownerScope, rateLimit, hash } from "@/lib/core/security";
@@ -15,7 +18,8 @@ export async function GET(request: Request) {
             if (!applicationEnabled())
                 return csrfResponse({ available: false, sandbox: false });
             const app = await runtime();
-            if (app.sandbox) requireSandbox(request);
+            if (app.sandbox)
+                requireSandbox(request);
             let signedIn = false;
             let currentCsrf: string | undefined;
             if (token)
@@ -31,6 +35,8 @@ export async function GET(request: Request) {
         if (app.sandbox)
             requireSandbox(request);
         if (op === "slots") {
+            if (!app.sandbox)
+                await rateLimit(app.repo, "slots-edge:" + trustedPrincipal(request), 120, new Date(), 1);
             const p = new URL(request.url).searchParams;
             return response(await app.booking.slots(string(p.get("businessId"), 80), string(p.get("offeringId"), 80), string(p.get("mode"), 20), string(p.get("fulfillment"), 20), string(p.get("date"), 10), new Date(), p.has("partySize") ? whole(Number(p.get("partySize")), 1, 10000) : undefined));
         }
@@ -39,10 +45,10 @@ export async function GET(request: Request) {
         if (op === "confirmation")
             return response(await app.booking.confirmation(jar.get(CONFIRMATION)?.value ?? ""));
         if (op === "admin")
-            return response(await adminOverview(app.repo, token, (process.env.JOBFRAY_ADMIN_EMAILS ?? "").split(","), new Date(), {business:new URL(request.url).searchParams.get("businessAfter")??undefined,refund:new URL(request.url).searchParams.get("refundAfter")??undefined}));
+            return response(await adminOverview(app.repo, token, (process.env.JOBFRAY_ADMIN_EMAILS ?? "").split(","), new Date(), { business: new URL(request.url).searchParams.get("businessAfter") ?? undefined, refund: new URL(request.url).searchParams.get("refundAfter") ?? undefined }));
         if (op === "readiness") {
-            const business = await ownerBusiness(app.repo,token,new Date());
-            return response({ errors: business ? await app.repo.transaction([],tx=>readiness(tx,business)) : ["Create your business first."] });
+            const business = await ownerBusiness(app.repo, token, new Date());
+            return response({ errors: business ? await app.repo.transaction([], tx => readiness(tx, business)) : ["Create your business first."] });
         }
         if (op === "sandbox-inbox") {
             requireSandbox(request);
@@ -61,6 +67,14 @@ export async function POST(request: Request) {
         if (app.sandbox)
             requireSandbox(request);
         const now = new Date(), token = cookieValue(request, COOKIE);
+        const principal = app.sandbox ? "local-sandbox" : trustedPrincipal(request);
+        const contactPrincipal=hash(token??cookieValue(request,"__Host-jf_csrf")??cookieValue(request,"jf_csrf")??"missing");
+        if (!app.sandbox)
+            await rateLimit(app.repo, "edge:" + principal + ":" + op, 60, now, 1);
+        if (op === "push-subscribe")
+            return response(await subscribePush(app.repo, token, string(v.businessId, 80), v.subscription, now));
+        if (op === "push-unsubscribe")
+            return response(await unsubscribePush(app.repo, token, now));
         // Do not trust forwarded IP. Global + normalized subject limits supplement provider edge limits.
         await rateLimit(app.repo, "http:" + op + ":" + hash(token ?? cookieValue(request, "__Host-jf_csrf") ?? cookieValue(request, "jf_csrf") ?? "anonymous"), 200, now, 1);
         if (op === "register")
@@ -75,9 +89,14 @@ export async function POST(request: Request) {
         if (op === "verify-email" || op === "reset-password")
             return response(await consumeAccountToken(app.repo, v.token, op === "verify-email" ? "VERIFY_EMAIL" : "RESET_PASSWORD", v.password, now));
         if (op === "logout") {
+            if (token) {
+                await unsubscribePush(app.repo, token, now);
+            }
             if (token)
-                await app.repo.transaction(["session:" + hash(token)], async (tx) => { for (const s of await tx.find("sessions", { tokenHash: hash(token) }))
-                    await tx.remove("sessions", s.id); });
+                await app.repo.transaction(["session:" + hash(token)], async (tx) => {
+                    for (const s of await tx.find("sessions", { tokenHash: hash(token) }))
+                        await tx.remove("sessions", s.id);
+                });
             const r = response({ signedOut: true });
             r.cookies.set(COOKIE, "", { httpOnly: true, secure: secure(), sameSite: "lax", path: "/", maxAge: 0 });
             return r;
@@ -85,7 +104,7 @@ export async function POST(request: Request) {
         if (op === "save-profile") {
             await app.repo.transaction([], tx => session(tx, token, now));
             const point = await app.geocoder.address(string(v.address, 250));
-            const discoveryPoint = await app.geocoder.zip(string(v.zip,5));
+            const discoveryPoint = await app.geocoder.zip(string(v.zip, 5));
             return response(await saveProfile(app.repo, token, { ...v, ...point }, now, discoveryPoint));
         }
         if (op === "save-resource")
@@ -101,8 +120,15 @@ export async function POST(request: Request) {
         if (op === "suspend")
             return response(await suspend(app.repo, token, string(v.businessId, 80), string(v.reason, 300), (process.env.JOBFRAY_ADMIN_EMAILS ?? "").split(",").filter(Boolean), now));
         if (op === "notification-settings")
-            return response(await app.repo.transaction(["tenant:" + string(v.businessId, 80)], async (tx) => { await ownerScope(tx, token, string(v.businessId, 80), now); const b = (await tx.get("businesses", string(v.businessId, 80)))!; if (typeof v.pushEnabled !== "boolean")
-                throw new AppError("Invalid notification preference"); b.pushEnabled = v.pushEnabled; await tx.put("businesses", b); return { saved: true }; }));
+            return response(await app.repo.transaction(["tenant:" + string(v.businessId, 80)], async (tx) => {
+                await ownerScope(tx, token, string(v.businessId, 80), now);
+                const b = (await tx.get("businesses", string(v.businessId, 80)))!;
+                if (typeof v.pushEnabled !== "boolean")
+                    throw new AppError("Invalid notification preference");
+                b.pushEnabled = v.pushEnabled;
+                await tx.put("businesses", b);
+                return { saved: true };
+            }));
         if (op === "request-refund")
             return response(await requestRefund(app.repo, token, (process.env.JOBFRAY_ADMIN_EMAILS ?? "").split(","), string(v.businessId, 80), string(v.requestId, 80), string(v.reason, 50), now));
         if (op === "simulate-refund") {
@@ -112,15 +138,30 @@ export async function POST(request: Request) {
         if (op === "release")
             return response(await app.booking.release(token, string(v.businessId, 80), string(v.requestId, 80), now));
         if (op === "contact-start")
-            return response(await startContact(app.repo, phone(v.phone), now));
+            return response(app.sandbox ? await startContact(app.repo, phone(v.phone), now) : await (async () => { requireCheckout(); if (!app.phoneVerification)
+                throw new AppError("Phone verification unavailable", 503); await rateLimit(app.repo,"verify-edge:"+principal,10,now);return app.phoneVerification.start(phone(v.phone), contactBinding(string(v.businessId, 80), string(v.offeringId, 80), string(v.mode, 20), string(v.idempotencyKey, 100)), contactPrincipal, now, string(v.businessId, 80)); })());
         if (op === "contact-verify")
-            return response(await verifyContact(app.repo, string(v.challengeId, 80), string(v.code, 6), now));
+            return response(app.sandbox ? await verifyContact(app.repo, string(v.challengeId, 80), string(v.code, 6), now) : await (async () => { requireCheckout(); if (!app.phoneVerification)
+                throw new AppError("Phone verification unavailable", 503); return app.phoneVerification.verify(string(v.challengeId, 80), string(v.code, 6), contactPrincipal, now); })());
         if (op === "checkout") {
-            // A public financial adapter is intentionally NOT exposed. Only isolated mock simulation.
-            requireSandbox(request);
+            if (app.sandbox)
+                requireSandbox(request);
+            else
+                requireCheckout();
             const result = await app.booking.checkout(v.selection, string(v.proof, 100), string(v.idempotencyKey, 100), now), r = response(result);
             r.cookies.set(CONFIRMATION, result.confirmationToken, { httpOnly: true, secure: secure(), sameSite: "strict", path: "/", maxAge: 180 * 86400 });
             return r;
+        }
+        if (op === "payment-start") {
+            requireCheckout();
+            if (!app.paymentOperations)
+                throw new AppError("Payments unavailable", 503);
+            const requestId = string(v.requestId, 80), intent = await app.booking.intent(requestId, cookieValue(request, CONFIRMATION) ?? "");
+            const row = await app.repo.transaction([], tx => tx.get("requests", requestId));
+            if (!row)
+                throw new AppError("Not found", 404);
+            await app.paymentOperations.track(intent.id, row.businessId, row.expiresAt, now);
+            return response({ checkoutUrl: intent.checkoutUrl });
         }
         if (op === "mock-pay") {
             requireSandbox(request);

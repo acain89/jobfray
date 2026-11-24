@@ -1,3 +1,5 @@
+> Phase 5 update: use [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md) and [PROVIDER_CONFIGURATION.md](PROVIDER_CONFIGURATION.md) for current provider/runtime configuration. This Phase 4 record describes the earlier disabled-adapter state and remains historical evidence. No live release is authorized.
+
 # JobFray operational release runbook
 
 Phase 4 prepares local verification; this is not deployment authorization. No existing

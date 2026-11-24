@@ -57,7 +57,10 @@ export interface Business {
     zip: string;
     latitude: number;
     longitude: number;
-    discoveryPoint?: {latitude:number;longitude:number};
+    discoveryPoint?: {
+        latitude: number;
+        longitude: number;
+    };
     timeZone: string;
     modes: BusinessMode[];
     directory: boolean;
@@ -232,6 +235,7 @@ export interface Media {
     proofHash: string | null;
     kind: "BUSINESS" | "QUOTE";
     bytes: string;
+    storage?: import("../integrations/cloudinary").Asset;
     contentType: "image/webp";
     createdAt: string;
     expiresAt: string | null;
@@ -250,7 +254,10 @@ export interface Refund {
     requestId: string;
     paymentId: string;
     reason: string;
-    state: "REQUIRED" | "SIMULATED_REFUNDED";
+    state: "REQUIRED" | "SIMULATED_REFUNDED" | "PROCESSING" | "REFUNDED" | "FAILED";
+    providerId?: string;
+    amountCents?:number;
+    providerStatus?:string;
     createdAt: string;
     resolvedAt: string | null;
 }
@@ -259,7 +266,34 @@ export interface RateBucket {
     count: number;
     expiresAt: string;
 }
+export interface Operation {
+    id: string;
+    businessId: string | null;
+    kind: string;
+    state: "PENDING" | "RUNNING" | "DONE" | "FAILED";
+    availableAt: string;
+    attempts: number;
+    leaseUntil: string | null;
+    leaseToken?: string;
+    payload: Record<string, unknown>;
+}
+export interface PushDevice {
+    id: string;
+    businessId: string;
+    accountId: string;
+    sessionHash: string;
+    endpointHash: string;
+    active: boolean;
+    endpoint: string;
+    keys: {
+        p256dh: string;
+        auth: string;
+    };
+    createdAt: string;
+}
 export interface Tables {
+    operations: Operation;
+    push: PushDevice;
     accounts: Account;
     sessions: Session;
     tokens: Token;

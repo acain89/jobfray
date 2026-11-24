@@ -19,6 +19,7 @@ enum JfFulfillment {
   STOREFRONT
 }
 model JfAccount {
+  pushDevices JfPushDevice[]
   id String @id
   email String @unique
   document Json
@@ -45,6 +46,9 @@ model JfToken {
   @@index([expiresAt])
 }
 model JfBusiness {
+  operations JfOperation[]
+  pushDevices JfPushDevice[]
+  directoryEntry JfDirectoryBusiness?
   id String @id
   ownerId String @unique
   slug String @unique
@@ -181,4 +185,49 @@ model JfRefund {
   request JfRequest @relation(fields:[businessId,requestId],references:[businessId,id],onDelete:Restrict)
   @@unique([businessId,paymentId])
   @@index([businessId,requestId])
+}
+
+model JfOperation {
+ id String @id
+ businessId String?
+ kind String
+ state String
+ availableAt DateTime @db.Timestamptz(3)
+ document Json
+ business JfBusiness? @relation(fields:[businessId],references:[id],onDelete:Restrict)
+ @@index([kind,state,availableAt])
+ @@index([businessId])
+}
+model JfPushDevice {
+ id String @id
+ businessId String
+ accountId String
+ sessionHash String
+ endpointHash String @unique
+ active Boolean
+ document Json
+ business JfBusiness @relation(fields:[businessId],references:[id],onDelete:Restrict)
+ account JfAccount @relation(fields:[accountId],references:[id],onDelete:Restrict)
+ @@index([businessId,accountId,active])
+ @@index([sessionHash])
+}
+model JfDirectoryBusiness {
+ id String @id
+ slug String @unique
+ name String
+ category String
+ city String
+ latitude Float?
+ longitude Float?
+ modes String[]
+ fulfillments String[]
+ pairs String[]
+ searchText String
+ document Json
+ business JfBusiness @relation(fields:[id],references:[id],onDelete:Restrict)
+ @@index([modes],type:Gin)
+ @@index([fulfillments],type:Gin)
+ @@index([pairs],type:Gin)
+ @@index([searchText(ops:raw("gin_trgm_ops"))],type:Gin,map:"JfDirectory_text_idx")
+ @@index([name,id],map:"JfDirectory_name_id_idx")
 }

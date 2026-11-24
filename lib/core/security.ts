@@ -71,11 +71,11 @@ export async function register(repo: Repository, input: unknown, now: Date) {
     await rateLimit(repo, "register:" + address, 4, now, 60);
     const encoded = await passwordHash(v.password);
     return repo.transaction(["account:" + address], async (tx) => {
-        const existing = (await tx.find("accounts", {email:address}))[0];
+        const existing = (await tx.find("accounts", { email: address }))[0];
         if (existing) {
             if (!existing.verifiedAt) {
-                const token = await issue(tx,"VERIFY_EMAIL",existing.id,now,60);
-                await enqueue(tx,{businessId:null,destination:address,channel:"EMAIL",kind:"VERIFY_EMAIL",body:token,key:"verify:"+existing.id+":"+hash(token)},now);
+                const token = await issue(tx, "VERIFY_EMAIL", existing.id, now, 60);
+                await enqueue(tx, { businessId: null, destination: address, channel: "EMAIL", kind: "VERIFY_EMAIL", body: token, key: "verify:" + existing.id + ":" + hash(token) }, now);
             }
             return { message: "If eligible, a verification email has been queued." };
         }
@@ -153,6 +153,9 @@ export async function consumeAccountToken(repo: Repository, raw: unknown, purpos
         await tx.put("tokens", token);
         await tx.put("accounts", account);
         if (encoded) {
+            await enqueue(tx, { businessId: null, destination: account.email, channel: "EMAIL", kind: "SECURITY", body: "Your JobFray password was changed and existing sessions were revoked. If this was not you, recover your account immediately.", key: "security-password:" + token.id }, now);
+            for (const device of await tx.find("push", { accountId: account.id, active: true }))
+                await tx.put("push", { ...device, active: false });
             for (const s of await tx.find("sessions", { accountId: account.id }))
                 await tx.remove("sessions", s.id);
             for (const t of await tx.find("tokens", { subject: account.id, purpose: "RESET_PASSWORD" }))

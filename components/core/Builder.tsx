@@ -16,40 +16,50 @@ export function Builder({ business, offerings, design }: {
         write: async (next, revision) => (await api<{
             revision: number;
         }>("autosave", { businessId: business.id, revision, content: next, design: true })).revision,
-        read: async () => { const current = await query<{
-            business: Business | null;
-        }>("workspace"); if (current.business?.id !== business.id)
-            throw new Error("Business session changed"); return { value: current.business.draft, revision: current.business.revision }; }
+        read: async () => {
+            const current = await query<{
+                business: Business | null;
+            }>("workspace");
+            if (current.business?.id !== business.id)
+                throw new Error("Business session changed");
+            return { value: current.business.draft, revision: current.business.revision };
+        }
     }));
     useEffect(() => {
         latest.current = value;
         const current = ++generation.current, changed = !saver.isSaved(value);
         dirty.current = changed;
-        const save = async () => { try {
-            await saver.save(value);
-            if (current === generation.current) {
-                dirty.current = false;
-                setState("Saved");
-                setError("");
+        const save = async () => {
+            try {
+                await saver.save(value);
+                if (current === generation.current) {
+                    dirty.current = false;
+                    setState("Saved");
+                    setError("");
+                }
             }
-        }
-        catch (e) {
-            if (current === generation.current) {
-                dirty.current = true;
-                setState("Unsaved changes");
-                setError((e as Error).message);
+            catch (e) {
+                if (current === generation.current) {
+                    dirty.current = true;
+                    setState("Unsaved changes");
+                    setError((e as Error).message);
+                }
+                throw e;
             }
-            throw e;
-        } };
+        };
         const timer = changed ? setTimeout(() => { void save().catch(() => { }); }, 700) : undefined;
         if (!changed)
-            queueMicrotask(() => { if (current === generation.current)
-                setState("Saved"); });
+            queueMicrotask(() => {
+                if (current === generation.current)
+                    setState("Saved");
+            });
         registerDraftFlush(async () => { clearTimeout(timer); await save(); });
         return () => { clearTimeout(timer); registerDraftFlush(undefined); };
     }, [value, saver, retry]);
-    useEffect(() => () => { if (dirty.current)
-        void saver.save(latest.current).catch(() => { }); }, [saver]);
+    useEffect(() => () => {
+        if (dirty.current)
+            void saver.save(latest.current).catch(() => { });
+    }, [saver]);
     useEffect(() => {
         const warn = (e: BeforeUnloadEvent) => {
             if (dirty.current) {
@@ -87,5 +97,5 @@ export function Builder({ business, offerings, design }: {
                 change({ testimonials: [...value.testimonials, { name: "Customer", text: "Add the genuine testimonial", genuine: true }] });
         }}>Add genuine testimonial</button></details>
     {error && <div role="alert"><p className="error-text">{error}</p><button type="button" onClick={() => setRetry(v => v + 1)}>Retry save</button></div>}
-  </section><section className="preview-panel"><div className="preview-label">Live preview / unpublished changes</div><SiteView preview site={{ id: business.id, slug: business.slug, name: business.name, category: business.category, city: business.city, timeZone: business.timeZone, address: business.addressPublic ? business.address : null, content: value, offerings: offerings.filter(o => o.active).map(o => ({ ...o, configurations: o.configurations.filter(c => business.modes.includes(c.mode)) })) }}/></section></div>;
+  </section><section className="preview-panel" tabIndex={0} aria-label="Live website preview"><div className="preview-label">Live preview / unpublished changes</div><SiteView preview site={{ id: business.id, slug: business.slug, name: business.name, category: business.category, city: business.city, timeZone: business.timeZone, address: business.addressPublic ? business.address : null, content: value, offerings: offerings.filter(o => o.active).map(o => ({ ...o, configurations: o.configurations.filter(c => business.modes.includes(c.mode)) })) }}/></section></div>;
 }

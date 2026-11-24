@@ -11,7 +11,7 @@ test("all historical migrations and repository instructions are byte-for-byte re
     assert.equal(files.filter((f) => f.endsWith("migration.sql")).length, 3);
     for (const file of [...files, "AGENTS.md", "CLAUDE.md"])
         assert.deepEqual(readFileSync(file), historical(file), file);
-    assert.equal(readdirSync("prisma/migrations", { withFileTypes: true }).filter((d) => d.isDirectory()).length, 5);
+    assert.equal(readdirSync("prisma/migrations", { withFileTypes: true }).filter((d) => d.isDirectory()).length, 6);
 });
 test("legacy models and enums are unchanged; Prisma 5 only adds the datasource URL", () => {
     const actual = readFileSync("prisma/schema.prisma", "utf8").split("// PHASE 3 ADDITIVE MODELS.")[0]!.trimEnd().replace('\n  url      = env("DATABASE_URL")', "");
@@ -65,4 +65,11 @@ test("offline additive SQL touches only new Jf tables and preserves immutable-hi
     assert.match(checks, /jf_event_immutable/);
     assert.match(checks, /jf_request_no_delete/);
     assert.match(checks, /9007199254740991/);
+});
+test("Phase 4 migration content preserves the original Git line-ending normalization", () => {
+    const revision = "afba51cd1575f29da2aa222a0d28365a038ab0ee";
+    const files = execFileSync("git", ["ls-tree", "-r", "--name-only", revision, "prisma/migrations"], { encoding: "utf8" }).trim().split("\n");
+    assert.equal(files.filter(f => f.endsWith("migration.sql")).length, 5);
+    for (const file of files)
+        assert.equal(execFileSync("git",["hash-object",file],{encoding:"utf8"}).trim(),execFileSync("git",["rev-parse",revision+":"+file],{encoding:"utf8"}).trim(),file);
 });

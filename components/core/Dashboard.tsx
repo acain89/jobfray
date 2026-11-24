@@ -7,11 +7,13 @@ import type { workspace } from "@/lib/core/business";
 import type { Offering, Resource } from "@/lib/core/model";
 import { api, appSession, query, money } from "./api";
 import { ProfileForm, ResourceForm, OfferingForm } from "./ManagementForms";
+import { PushControls } from "./PushControls";
 import { Builder } from "./Builder";
 type Workspace = Awaited<ReturnType<typeof workspace>>;
 const tabs = ["Overview", "Offerings", "Availability", "Business", "Website content", "Website design", "Publish & share", "Notifications"];
 export function Dashboard() {
     const router = useRouter();
+    const [notificationBusy,setNotificationBusy]=useState(false);
     const [data, setData] = useState<Workspace | null>(null), [tab, setTab] = useState("Overview"), [error, setError] = useState(""), [message, setMessage] = useState(""), [editing, setEditing] = useState<Offering | null>(null), [pool, setPool] = useState<Resource | null>(null), [sandbox, setSandbox] = useState(false), [origin, setOrigin] = useState(""), [ready, setReady] = useState<string[] | null>(null);
     const load = async () => {
         try {
@@ -57,7 +59,7 @@ export function Dashboard() {
     {error && <p role="alert" className="error-text">{error}</p>}{message && <p role="status">{message}</p>}
     {!b ? <ProfileForm business={null} onSaved={() => void load()}/> : <>
       <nav className="dashboard-tabs" aria-label="Dashboard sections">{tabs.map(name => <button key={name} type="button" aria-pressed={tab === name} onClick={() => { setTab(name); setMessage(""); }}>{name}</button>)}</nav>
-      <section hidden={tab !== "Overview"}>{(data.historyLimited || data.historyCursor) && <div><p role="status">Showing up to 100 confirmed records, newest first.</p>{data.historyCursor && <button type="button" onClick={() => void load()}>First history page</button>}{data.historyLimited && <button type="button" onClick={() => { void query<Workspace>("workspace",{after:data.nextCursor!}).then(setData).catch(e=>setError((e as Error).message)); }}>Next history page</button>}</div>}<div className="metrics"><div><strong>{data.requests.filter(r => r.start && Date.parse(r.start) > Date.parse(data.asOf) && r.status === "CONFIRMED").length}</strong><span>Upcoming bookings on this page</span></div><div><strong>{data.requests.filter(r => r.mode === "QUOTE" && r.status === "DELIVERED").length}</strong><span>Delivered quotes on this page</span></div><div><strong>{data.offerings.length}</strong><span>Offerings</span></div></div>
+      <section hidden={tab !== "Overview"}>{(data.historyLimited || data.historyCursor) && <div><p role="status">Showing up to 100 confirmed records, newest first.</p>{data.historyCursor && <button type="button" onClick={() => void load()}>First history page</button>}{data.historyLimited && <button type="button" onClick={() => { void query<Workspace>("workspace", { after: data.nextCursor! }).then(setData).catch(e => setError((e as Error).message)); }}>Next history page</button>}</div>}<div className="metrics"><div><strong>{data.requests.filter(r => r.start && Date.parse(r.start) > Date.parse(data.asOf) && r.status === "CONFIRMED").length}</strong><span>Upcoming bookings on this page</span></div><div><strong>{data.requests.filter(r => r.mode === "QUOTE" && r.status === "DELIVERED").length}</strong><span>Delivered quotes on this page</span></div><div><strong>{data.offerings.length}</strong><span>Offerings</span></div></div>
         <h2>Requests and history</h2>{!data.requests.length && <div className="empty-state"><h3>Your next customer connection starts here.</h3><p>Confirmed bookings, reservations and paid quote requests will appear here. External notification failures never remove these records.</p><button className="button" onClick={() => setTab("Offerings")}>Add your first offering</button></div>}
         <div className="request-list">{[...data.requests].sort((a, b) => (a.start ?? a.createdAt).localeCompare(b.start ?? b.createdAt)).map(r => {
                 const snapshot = data.snapshots.find(s => s.requestId === r.id);
@@ -100,7 +102,7 @@ export function Dashboard() {
                     setMessage("Use Copy link to share this website.");
             }}>Share website</button><button onClick={() => window.print()}>Print QR presentation</button></div>
       </section>
-      <section hidden={tab !== "Notifications"} className="card stack"><h2>Notifications</h2><p>Business email notifications are mandatory for new confirmed requests. The dashboard remains authoritative if delivery is delayed.</p><p>Delivery address: {data.account.email}</p><label className="check"><input type="checkbox" checked={b.pushEnabled} onChange={e => void act("notification-settings", { businessId: b.id, pushEnabled: e.target.checked })}/>Also queue optional PWA push notifications</label><small>Push transport and browser subscription delivery require a separately authorized provider. No notification provider is contacted here.</small></section>
+      <section hidden={tab !== "Notifications"} className="card stack"><h2>Notifications</h2><p>Business email notifications are mandatory for new confirmed requests. The dashboard remains authoritative if delivery is delayed.</p><p>Delivery address: {data.account.email}</p><label className="check"><input type="checkbox" checked={b.pushEnabled} disabled={notificationBusy} onChange={async e => {const enabled=e.target.checked,previous=data;setNotificationBusy(true);setData({...data,business:{...b,pushEnabled:enabled}});try{await api("notification-settings",{businessId:b.id,pushEnabled:enabled});await load();}catch(error){setData(previous);setError((error as Error).message);}finally{setNotificationBusy(false);}}}/>Also queue optional PWA push notifications</label><PushControls businessId={b.id} publicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""}/></section>
     </>}
   </div>;
 }

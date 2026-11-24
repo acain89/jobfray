@@ -112,3 +112,11 @@ statements that no isolated database was available or authorized. Existing/remot
 databases and real providers remain outside this verification. See
 [OPERATIONS.md](OPERATIONS.md) for environment, worker, migration, recovery and
 versioned confirmation-key procedures. Approved product policies and fees are unchanged.
+
+## Phase 5 implementation alignment
+
+Approved product and fee policies above are unchanged. Production adapters are prepared for Stripe platform-fee Checkout, Resend email, new JobFray Twilio Verify plus confirmation messaging, permanently licensed Mapbox geocoding, authenticated Cloudinary media and optional VAPID push. No account was provisioned or connected; Stripe explicitly remains disconnected. Mock transport is verification evidence only.
+
+Operational technical defaults: provider requests time out after eight seconds; quote verification is browser/request scoped with independent trusted-edge/destination limits; image upload failures have durable orphan jobs; unreferenced business images become eligible for cleanup at 24 hours; optional push is limited to twenty active devices per business. These are technical safety/retention defaults, not new rental, reservation, fee or refund policies. Account/provider/privacy review is required before release.
+
+The complete external requirements and release gates are in PROVIDER_CONFIGURATION.md, PRODUCTION_SETUP.md and RELEASE_CHECKLIST.md. Independent-business nonperformance still does not automatically refund a JF fee. Existing confirmed obligations and historical financial snapshots remain preserved.
