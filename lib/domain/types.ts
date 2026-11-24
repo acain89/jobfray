@@ -1,10 +1,13 @@
-/** Domain contracts only. No database or provider adapters are wired. */
+/** Validated domain contracts; adapters must never cast untrusted input into these. */
 export type BusinessId = string & { readonly __businessId: unique symbol };
 export type OwnerId = string & { readonly __ownerId: unique symbol };
-export type ServiceId = string & { readonly __serviceId: unique symbol };
-export type LocalDate = string; // YYYY-MM-DD in the business IANA time zone.
-export type Instant = string; // ISO 8601 UTC; validate at the eventual API boundary.
-export type ServiceMode = "AT_CUSTOMER" | "AT_BUSINESS" | "REMOTE";
+export type OfferingId = string & { readonly __offeringId: unique symbol };
+export type ResourceId = string & { readonly __resourceId: unique symbol };
+export type LocalDate = string;
+export type Instant = string;
+export type BusinessMode = "RENTAL" | "SERVICE" | "QUOTE" | "RESERVATION";
+export type ScheduledMode = Exclude<BusinessMode, "QUOTE">;
+export type Fulfillment = "MOBILE" | "STOREFRONT";
 export type PublicationStatus = "DRAFT" | "PUBLISHED" | "SUSPENDED";
 export interface Business {
   readonly id: BusinessId;
@@ -12,17 +15,35 @@ export interface Business {
   readonly slug: string;
   readonly timeZone: string;
   readonly status: PublicationStatus;
+  readonly enabledModes: readonly BusinessMode[];
 }
-export interface Service {
-  readonly id: ServiceId;
-  readonly businessId: BusinessId;
-  readonly name: string;
-  readonly categoryId: string;
-  readonly mode: ServiceMode;
+export type OfferingPrice =
+  | { readonly kind: "UNKNOWN" }
+  | { readonly kind: "KNOWN"; readonly unitAmountCents: number;
+      readonly basis: "FIXED" | "QUANTITY" | "QUANTITY_DURATION" };
+export interface ServiceTiming {
   readonly durationMinutes: number;
   readonly bufferBeforeMinutes: number;
   readonly bufferAfterMinutes: number;
-  readonly concurrentCapacity: number;
+}
+type ModeBase = {
+  readonly fulfillments: readonly Fulfillment[];
+  readonly price: OfferingPrice;
+};
+/** Null means unresolved, not a default. Scheduled requests must fail closed until configured. */
+export type OfferingModeConfig = ModeBase & (
+  | { readonly mode: "SERVICE"; readonly timing: ServiceTiming | null }
+  | { readonly mode: "RENTAL"; readonly durationUnit: "HOUR" | "DAY" | null }
+  | { readonly mode: "RESERVATION"; readonly capacityUnit: "PARTY" | "PERSON" | null }
+  | { readonly mode: "QUOTE" }
+);
+export interface Offering {
+  readonly id: OfferingId;
+  readonly businessId: BusinessId;
+  readonly name: string;
+  readonly categoryId: string;
+  readonly active: boolean;
+  readonly configurations: readonly OfferingModeConfig[];
 }
 export interface Website {
   readonly businessId: BusinessId;
@@ -39,81 +60,110 @@ export interface BusinessDomain {
 export interface DirectoryQuery {
   readonly location: string;
   readonly category: string;
-  readonly mode: ServiceMode | "";
+  readonly mode: BusinessMode | "";
+  readonly fulfillment: Fulfillment | "";
 }
 export interface DirectoryEntry {
   readonly business: Pick<Business, "id" | "name" | "slug">;
   readonly summary: string;
   readonly locationLabel: string;
   readonly categoryIds: readonly string[];
-  readonly modes: readonly ServiceMode[];
+  readonly modes: readonly BusinessMode[];
+  readonly fulfillments: readonly Fulfillment[];
+}
+export interface Resource {
+  readonly id: ResourceId;
+  readonly businessId: BusinessId;
+  readonly name: string;
+  readonly capacity: number;
+  readonly timeZone: string;
+}
+export interface ResourceRequirement {
+  readonly businessId: BusinessId;
+  readonly offeringId: OfferingId;
+  readonly mode: ScheduledMode;
+  readonly resourceId: ResourceId;
+  readonly unitsPerQuantity: number;
 }
 export interface AvailabilityRule {
   readonly businessId: BusinessId;
-  readonly serviceId: ServiceId;
+  readonly resourceId: ResourceId;
   readonly weekday: 0 | 1 | 2 | 3 | 4 | 5 | 6;
   readonly startMinute: number;
   readonly endMinute: number;
 }
 export interface AvailabilityException {
   readonly businessId: BusinessId;
-  readonly serviceId: ServiceId;
+  readonly resourceId: ResourceId;
   readonly date: LocalDate;
-  readonly windows: readonly {
-    readonly startMinute: number;
-    readonly endMinute: number;
-  }[];
-  // Empty windows close the day; nonempty windows replace the normal day.
+  readonly windows: readonly { readonly startMinute: number; readonly endMinute: number }[];
 }
-export interface Booking {
-  readonly id: string;
+export interface SchedulingPolicy {
   readonly businessId: BusinessId;
-  readonly serviceId: ServiceId;
-  readonly startsAt: Instant;
-  readonly endsAt: Instant;
-  readonly timeZone: string;
-  readonly status: "HELD" | "CONFIRMED" | "CANCELLED" | "EXPIRED";
-  readonly holdExpiresAt: Instant | null;
+  readonly offeringId: OfferingId;
+  readonly mode: ScheduledMode;
+  readonly horizonDays: number;
+  readonly minimumLeadMinutes: number;
+  readonly holdMinutes: number;
+  readonly version: string;
 }
-export interface QuoteRequest {
-  readonly id: string;
-  readonly businessId: BusinessId;
-  readonly serviceId: ServiceId;
-  readonly status: "AWAITING_PAYMENT" | "SUBMITTED" | "CLOSED";
-  readonly customerMessage: string;
-}
-export type FeePurpose = "QUOTE_REQUEST" | "CONFIRMED_APPOINTMENT";
-export type PlatformFeeOrder = {
+export interface Allocation {
   readonly id: string;
   readonly businessId: BusinessId;
   readonly requestId: string;
-  readonly currency: "USD";
-  readonly recipient: "JOBFRAY";
-  readonly state:
-    | "CREATED"
-    | "PROCESSING"
-    | "SUCCEEDED"
-    | "FAILED"
-    | "REFUNDED"
-    | "DISPUTED";
-  readonly idempotencyKey: string;
-} & (
-  | { readonly purpose: "QUOTE_REQUEST"; readonly amountCents: 300 }
-  | { readonly purpose: "CONFIRMED_APPOINTMENT"; readonly amountCents: 500 }
-);
-export interface Job {
+  readonly resourceId: ResourceId;
+  readonly startsAt: Instant;
+  readonly endsAt: Instant;
+  readonly units: number;
+  readonly status: "HELD" | "CONFIRMED" | "RELEASED";
+  readonly holdExpiresAt: Instant | null;
+}
+export type CustomerRequest = {
   readonly id: string;
   readonly businessId: BusinessId;
-  readonly source: {
-    readonly kind: "QUOTE_REQUEST" | "BOOKING";
-    readonly id: string;
-  };
-  readonly status: "OPEN" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+  readonly offeringId: OfferingId;
+  readonly fulfillment: Fulfillment;
+  readonly quantity: number;
+} & (
+  | { readonly mode: "QUOTE"; readonly status: "SUBMITTED" | "CLOSED"; readonly customerMessage: string }
+  | { readonly mode: ScheduledMode; readonly status: "HELD" | "CONFIRMED" | "CANCELLED" | "EXPIRED";
+      readonly startsAt: Instant; readonly endsAt: Instant; readonly timeZone: string;
+      readonly holdExpiresAt: Instant | null }
+);
+export type FeeCents = 200 | 300 | 400 | 500;
+export interface CheckoutSnapshot {
+  readonly id: string;
+  readonly businessId: BusinessId;
+  readonly offeringId: OfferingId;
+  readonly requestId: string;
+  readonly mode: BusinessMode;
+  readonly fulfillment: Fulfillment;
+  readonly quantity: number;
+  readonly durationUnits: number | null;
+  readonly durationUnit: "HOUR" | "DAY" | null;
+  readonly priceKind: "KNOWN" | "UNKNOWN";
+  readonly priceBasis: "FIXED" | "QUANTITY" | "QUANTITY_DURATION" | null;
+  readonly unitAmountCents: number | null;
+  readonly underlyingSubtotalCents: number | null;
+  readonly platformFeeCents: FeeCents;
+  readonly pricingPolicyVersion: string;
+  readonly currency: "USD";
+  readonly recipient: "JOBFRAY";
+  readonly processingCostPayer: "JOBFRAY";
+  readonly createdAt: Instant;
+}
+export interface PlatformFeeOrder {
+  readonly id: string;
+  readonly businessId: BusinessId;
+  readonly snapshot: CheckoutSnapshot;
+  readonly state: "CREATED" | "PROCESSING" | "SUCCEEDED" | "FAILED" | "REFUNDED" | "DISPUTED";
+  readonly idempotencyKey: string;
 }
 export interface OwnerNotification {
   readonly id: string;
   readonly businessId: BusinessId;
   readonly ownerId: OwnerId;
-  readonly kind: "QUOTE_SUBMITTED" | "BOOKING_CONFIRMED";
+  readonly requestId: string;
+  readonly kind: "REQUEST_SUBMITTED" | "REQUEST_CONFIRMED";
   readonly readAt: Instant | null;
 }

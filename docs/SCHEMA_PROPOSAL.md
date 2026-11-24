@@ -1,58 +1,74 @@
-# Additive Prisma proposal ? not applied
+# Four-mode Prisma proposal - not applied
 
-Active schema: `prisma/schema.prisma`. It retains all historical enums and models:
-Worker, WorkerServiceArea, PosterContact, Category, Post, PostPhoto, JobInterest,
-Review, Report, SmsVerification and WorkerInterest. The only active-schema edit
-is `url = env("DATABASE_URL")` for Prisma 5. No Prisma 7 config/driver adapter or
-seed hook remains; nothing instantiates a Prisma client in application code.
+Active `prisma/schema.prisma` and all three legacy migration SQL files remain
+unchanged in Phase 2. The proposal is standalone validation input only. Never
+migrate it alone, reset, rebaseline, seed, or use db push.
 
-`prisma/proposals/rebuild.prisma` is a separately validated standalone proposal.
-It is deliberately outside `prisma/migrations` and is NOT a replacement active
-schema. It adds prefixed models to avoid reinterpreting or colliding with legacy
-Post/Worker/Category data:
+## Structure
 
-| Area            | Proposed models                             |
-| --------------- | ------------------------------------------- |
-| Tenancy         | JfOwner, JfBusiness, JfMembership           |
-| Publishing      | JfWebsite, JfDomain                         |
-| Discovery       | JfCategory, JfService, JfServiceArea        |
-| Availability    | JfAvailabilityRule, JfAvailabilityException |
-| Requests        | JfBooking, JfQuoteRequest                   |
-| Platform fees   | JfFeeOrder, JfPaymentEvent                  |
-| Owner workspace | JfJob, JfNotification                       |
+| Shared area | Proposed models |
+| --- | --- |
+| Identity / tenancy | JfOwner, JfBusiness, JfMembership, JfBusinessModeConfig |
+| Website / discovery | JfWebsite, JfDomain, JfCategory, JfServiceArea |
+| Catalog | JfOffering, JfOfferingMode |
+| Scheduling | JfResource, JfResourceRequirement, JfSchedulingPolicy, JfAvailabilityRule, JfAvailabilityException |
+| Requests / allocation | JfRequest, JfAllocation |
+| Platform fees / history | JfCheckoutSnapshot, JfFeeOrder, JfPaymentEvent |
+| Notifications | JfNotification |
 
-Business-owned child references use composite foreign keys where they reference
-another business-owned record. Restrict deletion for financial/history retention;
-there are no cascading deletes. Exact hostnames are unique and unverified by
-default. Fee orders have immutable-correlation candidates and globally unique
-idempotency/provider references. No connected-account destination exists.
+BusinessModeConfig is keyed by business and mode; OfferingMode references it and
+one shared offering. Disabled records remain for history. Fulfillment is an enum
+array allowing mobile, storefront or both. Mode-specific fields are typed nullable
+columns validated by the server projection into the domain union. Only calendar
+replacement windows use JSON. Resources and their calendars are shared across
+offerings; resource requirements are mode-specific. Requests reference a catalog
+mode; notifications reference a tenant-owned request instead of an untyped subject.
 
-## Later migration strategy (separate approval required)
+Monetary unit amounts and underlying subtotals use PostgreSQL BigInt because Prisma
+Int cannot represent the domain's safe-integer monetary range. Server projection
+checks conversion before use. Fee cents remain Int. Snapshots retain original
+pricing facts and policy version. FeeOrder references the snapshot and carries
+mutable payment state separately. Tenant-scoped request and order idempotency keys
+are unique. Request payload hashes detect replay conflicts; provider event IDs are
+globally unique. No transfer destinations, business payouts or recurring billing.
 
-1. Establish the actual target database identity, applied migration history,
-   existing data/constraints and a verified backup/restore plan without exposing
-   customer data. No such database access was performed for this foundation.
-2. Retain all three historical migration SQL files and their lock unchanged.
-   Do not rebaseline, reset, use `db push`, or migrate this standalone proposal.
-3. Finalize ownership/authentication, booking/payment semantics and schema design.
-   Merge approved new models into the retained active schema. Generate a NEW
-   additive migration on an independently verified disposable PostgreSQL instance.
-4. Add/review database constraints not expressible here: positive duration/capacity,
-   nonnegative buffers, weekday/window ranges, startsAt < endsAt, exactly one
-   quote/booking target matching fee purpose, fee cents 300/500 and USD/JobFray
-   recipient, and exactly one matching source for a job. Validate JSON exception
-   windows and IANA time zones at the API boundary. Do not mistake Prisma validate
-   for validation of these missing runtime/database invariants.
-5. Define the concurrency lock strategy before booking writes. A fee-order unique
-   key alone does not prevent overlapping capacity reservations or confirm a paid
-   appointment. Verify transactions, retries, idempotency and state ordering.
-6. Test the additive migration and old/new client compatibility against isolated
-   copies/fixtures. Review generated SQL for drops, alters of legacy columns,
-   cascades and data rewrites. None is authorized in this task.
-7. Apply only after explicit release approval. Keep new tables during application
-   rollback; never use a destructive down migration or erase live records.
+## Required invariants before a future migration/adapter
 
-Existing billing/identity/provider obligations need inventory before replacing the
-old production application. The new app does not cancel or service those external
-obligations. Prisma 5 validation/generation proves local schema compatibility,
-not production drift, provider state or full database compatibility.
+Prisma schema validation does not enforce these rules. Implement/review database
+CHECKs, transaction guards and adapter validation together, then test them on an
+independently approved disposable database:
+
+- OfferingMode fulfillment arrays nonempty, unique and valid; selected request
+  fulfillment belongs to that configuration; enabled state gates NEW requests only.
+- Known prices require nonnegative safe-integer unit cents and a basis; unknown
+  prices require null amount/basis. QUANTITY_DURATION is rental-only and needs an
+  explicit duration unit. Cross-mode fields must be null; service timing is either
+  all null or complete with positive duration/nonnegative buffers and safe sum.
+- Resources/requirements have positive capacity/units. QUOTE has no scheduling
+  policy, resource requirements or allocations. Calendars have weekday 0 to 6 and
+  0 <= startMinute < endMinute <= 1440; validate local date/time-zone/JSON windows.
+- Scheduled requests have valid increasing UTC endpoints and explicit time zone;
+  quote requests have neither schedule nor hold fields. State values match mode;
+  quantity is positive. HELD requires expiry; nonheld states have no active expiry.
+- Allocations are within the same tenant, reference a scheduled request and a
+  configured resource, have positive units/increasing intervals, and count live
+  holds atomically under shared resource locks. No blanket single-slot unique key.
+- Snapshot mode, offering, fulfillment and quantity match its immutable request
+  facts. Money/quantity/duration fields are within safe integer bounds. New snapshots
+  are created only by the approved versioned calculator, not browser inserts.
+  Currency USD, recipient JOBFRAY, processingCostPayer JOBFRAY. Historical snapshots
+  cannot UPDATE/DELETE; do not constrain historical fees to the current policy alone.
+- Unique snapshot per tenant/request; unique fee order per snapshot. Request key +
+  payload hash and fee-order key are checked inside their locking transactions.
+  Payment transition/event handling is verified, deduplicated and tenant-bound.
+
+The proposal expresses tenant-bound foreign keys but cannot by itself enforce
+publication, permissions, shared-resource capacity or immutable accepted pricing.
+Do not treat schema validation as production compatibility or concurrency evidence.
+
+## Additive integration gate
+
+Finalize unresolved decisions in PHASE2_DECISIONS.md. Retain all legacy models and
+migration history; merge additive models only after an approved isolated migration
+review, backup/restore planning and SQL inspection. No database was accessed in
+Phase 2. No destructive rollback: retain historical transaction tables and facts.

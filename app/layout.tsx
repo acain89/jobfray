@@ -6,11 +6,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL(siteOrigin),
   title: {
-    default: "JobFray | Service businesses, connected",
+    default: "JobFray | Your business, connected",
     template: "%s | JobFray",
   },
   description:
-    "A new home for service-business websites, local discovery, quote requests and appointments.",
+    "Free business websites, local discovery, rentals, services, quotes and reservations.",
   robots: { index: false, follow: false },
 };
 export default function RootLayout({ children }: { children: ReactNode }) {

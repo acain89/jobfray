@@ -79,3 +79,16 @@ test("foundation has no production write adapters, old provider dependencies or 
     }
   }
 });
+
+test("proposed mode/fulfillment enums and tenant-owned relations match Phase 2 contracts", async () => {
+  const { BUSINESS_MODES, FULFILLMENTS } = await import("../lib/domain/validation");
+  const proposed = readFileSync("prisma/proposals/rebuild.prisma", "utf8");
+  const values = (name: string) => proposed.match(new RegExp(`enum ${name} \\{([^}]+)\\}`))?.[1]?.trim().split(/\s+/);
+  assert.deepEqual(values("JfBusinessMode"), [...BUSINESS_MODES]);
+  assert.deepEqual(values("JfFulfillment"), [...FULFILLMENTS]);
+  assert.match(proposed, /unitAmountCents\s+BigInt\?/);
+  assert.match(proposed, /underlyingSubtotalCents\s+BigInt\?/);
+  assert.match(proposed, /@@unique\(\[businessId, idempotencyKey\]\)/);
+  assert.match(proposed, /references: \[businessId, offeringId, mode\]/);
+  assert.doesNotMatch(proposed, /JfServiceMode|AWAITING_PAYMENT|QUOTE_REQUEST|CONFIRMED_APPOINTMENT/);
+});

@@ -121,18 +121,23 @@ try {
   const search = await (
     await fetch(
       origin +
-        "/directory?location=%3Cscript%3Ealert(1)%3C%2Fscript%3E&mode=REMOTE",
+        "/directory?location=%3Cscript%3Ealert(1)%3C%2Fscript%3E&mode=RENTAL&fulfillment=MOBILE",
     )
   ).text();
   assert.ok(search.includes("&lt;script&gt;"));
   assert.ok(!search.includes("<script>alert(1)</script>"));
-  assert.ok(search.includes("Remote"));
+  assert.ok(search.includes("Mobile"));
+  assert.ok(search.includes("RENTAL"));
   const how = await (await fetch(origin + "/how-it-works")).text();
-  assert.match(how.replace(/<[^>]+>/g, ""), /\$3/);
+  for (const fee of [2, 3, 4, 5]) assert.ok(how.replace(/<[^>]+>/g, "").includes("$" + fee));
+  for (const band of ["$0.00 to $30.00", "$30.01 to $75.00", "$75.01 to $150.99", "$151.00 and above"]) assert.ok(how.includes(band));
+  assert.ok(how.includes("genuinely unknown offering price"));
+  for (const mode of ["RENTAL", "SERVICE", "QUOTE", "RESERVATION"]) assert.ok(search.includes('value="' + mode + '"'));
+  assert.ok(search.includes('label for="fulfillment"'));
   assert.match(how.replace(/<[^>]+>/g, ""), /\$5/);
   assert.match(
     how,
-    /pay you directly|pay the provider directly|pay service providers directly|arrange payment.*directly/i,
+    /pay businesses directly|pay you directly|pay the provider directly|pay service providers directly|arrange payment.*directly/i,
   );
   console.log(
     "PASS: public HTML, navigation, fees, escaped filters, fail-closed owner/tenant routes, old-route removal, health, indexing headers and robots; no provider or DB access.",

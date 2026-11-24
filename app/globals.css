@@ -212,7 +212,7 @@ p {
 }
 .filter-form {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: end;
   gap: 1rem;
   padding: 1.5rem;
@@ -328,3 +328,8 @@ select {
     scroll-behavior: auto !important;
   }
 }
+
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+caption { text-align: left; font-weight: 700; margin-bottom: 1rem; }
+th, td { padding: 0.75rem; border-bottom: 1px solid var(--line); }

@@ -1,21 +1,25 @@
-// PROPOSAL ONLY. Not the active Prisma schema; never migrate this file alone.
-// Future integration must MERGE these additive models with all legacy models.
+// PROPOSAL ONLY. Merge additively with retained legacy schema; never migrate alone.
 generator client {
   provider = "prisma-client-js"
 }
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url = env("DATABASE_URL")
+}
+enum JfBusinessMode {
+  RENTAL
+  SERVICE
+  QUOTE
+  RESERVATION
+}
+enum JfFulfillment {
+  MOBILE
+  STOREFRONT
 }
 enum JfPublicationStatus {
   DRAFT
   PUBLISHED
   SUSPENDED
-}
-enum JfServiceMode {
-  AT_CUSTOMER
-  AT_BUSINESS
-  REMOTE
 }
 enum JfDomainKind {
   SUBDOMAIN
@@ -26,20 +30,35 @@ enum JfDomainStatus {
   VERIFIED
   DISABLED
 }
-enum JfBookingStatus {
+enum JfPriceKind {
+  KNOWN
+  UNKNOWN
+}
+enum JfPriceBasis {
+  FIXED
+  QUANTITY
+  QUANTITY_DURATION
+}
+enum JfDurationUnit {
+  HOUR
+  DAY
+}
+enum JfCapacityUnit {
+  PARTY
+  PERSON
+}
+enum JfRequestStatus {
+  SUBMITTED
+  CLOSED
   HELD
   CONFIRMED
   CANCELLED
   EXPIRED
 }
-enum JfQuoteStatus {
-  AWAITING_PAYMENT
-  SUBMITTED
-  CLOSED
-}
-enum JfFeePurpose {
-  QUOTE_REQUEST
-  CONFIRMED_APPOINTMENT
+enum JfAllocationStatus {
+  HELD
+  CONFIRMED
+  RELEASED
 }
 enum JfFeeState {
   CREATED
@@ -49,221 +68,281 @@ enum JfFeeState {
   REFUNDED
   DISPUTED
 }
-enum JfJobStatus {
-  OPEN
-  IN_PROGRESS
-  COMPLETED
-  CANCELLED
-}
 enum JfNotificationKind {
-  QUOTE_SUBMITTED
-  BOOKING_CONFIRMED
+  REQUEST_SUBMITTED
+  REQUEST_CONFIRMED
 }
 model JfOwner {
-  id          String @id @default(cuid())
+  id String @id @default(cuid())
   authSubject String @unique
-  email       String @unique
-  createdAt   DateTime @default(now())
+  email String @unique
   memberships JfMembership[]
+  createdAt DateTime @default(now())
 }
 model JfBusiness {
-  id           String @id @default(cuid())
-  slug         String @unique
-  name         String
-  timeZone     String
-  status       JfPublicationStatus @default(DRAFT)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  memberships  JfMembership[]
-  website      JfWebsite?
-  domains      JfDomain[]
-  services     JfService[]
+  id String @id @default(cuid())
+  slug String @unique
+  name String
+  timeZone String
+  status JfPublicationStatus @default(DRAFT)
+  memberships JfMembership[]
+  modes JfBusinessModeConfig[]
+  offerings JfOffering[]
+  resources JfResource[]
+  website JfWebsite?
+  domains JfDomain[]
   serviceAreas JfServiceArea[]
-  bookings     JfBooking[]
-  quoteRequests JfQuoteRequest[]
-  feeOrders    JfFeeOrder[]
-  jobs         JfJob[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 model JfMembership {
   businessId String
-  ownerId    String
-  active     Boolean @default(true)
-  createdAt  DateTime @default(now())
-  business   JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  owner      JfOwner @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  ownerId String
+  active Boolean @default(true)
+  business JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  owner JfOwner @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   notifications JfNotification[]
   @@id([businessId, ownerId])
   @@index([ownerId, active])
 }
+model JfBusinessModeConfig {
+  businessId String
+  mode JfBusinessMode
+  enabled Boolean @default(false)
+  business JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  offerings JfOfferingMode[]
+  @@id([businessId, mode])
+}
 model JfWebsite {
-  id           String @id @default(cuid())
-  businessId   String @unique
-  title        String
+  id String @id @default(cuid())
+  businessId String @unique
+  title String
   introduction String
-  status       JfPublicationStatus @default(DRAFT)
-  updatedAt    DateTime @updatedAt
-  business     JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  status JfPublicationStatus @default(DRAFT)
+  business JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  updatedAt DateTime @updatedAt
 }
 model JfDomain {
-  id           String @id @default(cuid())
-  businessId   String
-  hostname     String @unique
-  kind         JfDomainKind
-  status       JfDomainStatus @default(PENDING)
-  verifiedAt   DateTime?
-  business     JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  id String @id @default(cuid())
+  businessId String
+  hostname String @unique
+  kind JfDomainKind
+  status JfDomainStatus @default(PENDING)
+  verifiedAt DateTime?
+  business JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
   @@index([businessId, status])
 }
 model JfCategory {
-  id       String @id @default(cuid())
-  slug     String @unique
-  name     String
-  services JfService[]
+  id String @id @default(cuid())
+  slug String @unique
+  name String
+  offerings JfOffering[]
 }
-model JfService {
-  id                  String @id @default(cuid())
-  businessId          String
-  categoryId          String
-  name                String
-  description         String
-  mode                JfServiceMode
-  durationMinutes     Int
-  bufferBeforeMinutes Int @default(0)
-  bufferAfterMinutes  Int @default(0)
-  concurrentCapacity  Int @default(1)
-  active              Boolean @default(true)
-  business            JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  category            JfCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  availabilityRules   JfAvailabilityRule[]
-  availabilityExceptions JfAvailabilityException[]
-  bookings            JfBooking[]
-  quoteRequests       JfQuoteRequest[]
+model JfOffering {
+  id String @id @default(cuid())
+  businessId String
+  categoryId String
+  name String
+  description String
+  active Boolean @default(false)
+  business JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  category JfCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  modes JfOfferingMode[]
   @@unique([businessId, id])
-  @@index([categoryId, mode, active])
+  @@index([categoryId, active])
+}
+// Typed columns map to parseModeConfig's discriminated union; CHECKs listed in SCHEMA_PROPOSAL.
+model JfOfferingMode {
+  businessId String
+  offeringId String
+  mode JfBusinessMode
+  fulfillments JfFulfillment[]
+  priceKind JfPriceKind
+  priceBasis JfPriceBasis?
+  unitAmountCents BigInt?
+  durationMinutes Int?
+  bufferBeforeMinutes Int?
+  bufferAfterMinutes Int?
+  durationUnit JfDurationUnit?
+  capacityUnit JfCapacityUnit?
+  offering JfOffering @relation(fields: [businessId, offeringId], references: [businessId, id], onDelete: Restrict)
+  businessMode JfBusinessModeConfig @relation(fields: [businessId, mode], references: [businessId, mode], onDelete: Restrict)
+  schedulingPolicy JfSchedulingPolicy?
+  requirements JfResourceRequirement[]
+  requests JfRequest[]
+  @@id([businessId, offeringId, mode])
+  @@index([mode])
 }
 model JfServiceArea {
-  id          String @id @default(cuid())
-  businessId  String
-  city        String
-  region      String
+  id String @id @default(cuid())
+  businessId String
+  city String
+  region String
   countryCode String
-  postalCode  String?
-  business    JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  postalCode String?
+  business JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
   @@index([countryCode, region, city])
   @@index([postalCode])
   @@index([businessId])
 }
+// Shared resources, not per-offering counters. Calendar windows are business-local.
+model JfResource {
+  id String @id @default(cuid())
+  businessId String
+  name String
+  timeZone String
+  capacity Int
+  business JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  requirements JfResourceRequirement[]
+  rules JfAvailabilityRule[]
+  exceptions JfAvailabilityException[]
+  allocations JfAllocation[]
+  @@unique([businessId, id])
+}
+model JfResourceRequirement {
+  businessId String
+  offeringId String
+  mode JfBusinessMode
+  resourceId String
+  unitsPerQuantity Int
+  offeringMode JfOfferingMode @relation(fields: [businessId, offeringId, mode], references: [businessId, offeringId, mode], onDelete: Restrict)
+  resource JfResource @relation(fields: [businessId, resourceId], references: [businessId, id], onDelete: Restrict)
+  @@id([businessId, offeringId, mode, resourceId])
+}
+model JfSchedulingPolicy {
+  businessId String
+  offeringId String
+  mode JfBusinessMode
+  horizonDays Int
+  minimumLeadMinutes Int
+  holdMinutes Int
+  version String
+  offeringMode JfOfferingMode @relation(fields: [businessId, offeringId, mode], references: [businessId, offeringId, mode], onDelete: Restrict)
+  @@id([businessId, offeringId, mode])
+}
 model JfAvailabilityRule {
-  id          String @id @default(cuid())
-  businessId  String
-  serviceId   String
-  weekday     Int
+  id String @id @default(cuid())
+  businessId String
+  resourceId String
+  weekday Int
   startMinute Int
-  endMinute   Int
-  service     JfService @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  @@index([businessId, serviceId, weekday])
+  endMinute Int
+  resource JfResource @relation(fields: [businessId, resourceId], references: [businessId, id], onDelete: Restrict)
+  @@index([businessId, resourceId, weekday])
 }
 model JfAvailabilityException {
-  id         String @id @default(cuid())
+  id String @id @default(cuid())
   businessId String
-  serviceId  String
-  localDate  DateTime @db.Date
-  // Validated replacement local windows; [] closes the day. No arbitrary HTML.
-  windows    Json
-  service    JfService @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  @@unique([businessId, serviceId, localDate])
+  resourceId String
+  localDate DateTime @db.Date
+  windows Json
+  resource JfResource @relation(fields: [businessId, resourceId], references: [businessId, id], onDelete: Restrict)
+  @@unique([businessId, resourceId, localDate])
 }
-model JfBooking {
-  id            String @id @default(cuid())
-  businessId    String
-  serviceId     String
-  startsAt      DateTime @db.Timestamptz(3)
-  endsAt        DateTime @db.Timestamptz(3)
-  timeZone      String
-  status        JfBookingStatus @default(HELD)
-  holdExpiresAt DateTime? @db.Timestamptz(3)
+// QUOTE has no scheduling fields. Appointment requests are separate records.
+model JfRequest {
+  id String @id @default(cuid())
+  businessId String
+  offeringId String
+  mode JfBusinessMode
+  fulfillment JfFulfillment
+  quantity Int
+  status JfRequestStatus
   customerEmail String
-  createdAt     DateTime @default(now())
-  business      JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  service       JfService @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  feeOrder      JfFeeOrder?
-  job           JfJob?
+  customerMessage String?
+  startsAt DateTime? @db.Timestamptz(3)
+  endsAt DateTime? @db.Timestamptz(3)
+  timeZone String?
+  holdExpiresAt DateTime? @db.Timestamptz(3)
+  schedulingPolicyVersion String?
+  idempotencyKey String
+  payloadHash String
+  offeringMode JfOfferingMode @relation(fields: [businessId, offeringId, mode], references: [businessId, offeringId, mode], onDelete: Restrict)
+  allocations JfAllocation[]
+  snapshot JfCheckoutSnapshot?
+  notifications JfNotification[]
+  createdAt DateTime @default(now())
   @@unique([businessId, id])
-  @@index([businessId, serviceId, startsAt, endsAt, status])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, mode, status, createdAt])
+}
+model JfAllocation {
+  id String @id @default(cuid())
+  businessId String
+  requestId String
+  resourceId String
+  startsAt DateTime @db.Timestamptz(3)
+  endsAt DateTime @db.Timestamptz(3)
+  units Int
+  status JfAllocationStatus
+  holdExpiresAt DateTime? @db.Timestamptz(3)
+  request JfRequest @relation(fields: [businessId, requestId], references: [businessId, id], onDelete: Restrict)
+  resource JfResource @relation(fields: [businessId, resourceId], references: [businessId, id], onDelete: Restrict)
+  @@unique([businessId, requestId, resourceId])
+  @@index([businessId, resourceId, startsAt, endsAt, status])
   @@index([status, holdExpiresAt])
 }
-model JfQuoteRequest {
-  id              String @id @default(cuid())
-  businessId      String
-  serviceId       String
-  status          JfQuoteStatus @default(AWAITING_PAYMENT)
-  customerEmail   String
-  customerMessage String
-  createdAt       DateTime @default(now())
-  business        JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  service         JfService @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  feeOrder        JfFeeOrder?
-  job             JfJob?
+// Insert-only accepted checkout facts. Historical reads never invoke today's pricing code.
+model JfCheckoutSnapshot {
+  id String @id
+  businessId String
+  requestId String
+  offeringId String
+  mode JfBusinessMode
+  fulfillment JfFulfillment
+  quantity Int
+  durationUnits Int?
+  durationUnit JfDurationUnit?
+  priceKind JfPriceKind
+  priceBasis JfPriceBasis?
+  unitAmountCents BigInt?
+  underlyingSubtotalCents BigInt?
+  platformFeeCents Int
+  pricingPolicyVersion String
+  currency String
+  recipient String
+  processingCostPayer String
+  createdAt DateTime @db.Timestamptz(3)
+  request JfRequest @relation(fields: [businessId, requestId], references: [businessId, id], onDelete: Restrict)
+  order JfFeeOrder?
   @@unique([businessId, id])
-  @@index([businessId, status, createdAt])
+  @@unique([businessId, requestId])
 }
 model JfFeeOrder {
-  id             String @id @default(cuid())
-  businessId     String
-  purpose        JfFeePurpose
-  amountCents    Int
-  currency       String @default("USD")
-  recipient      String @default("JOBFRAY")
-  state          JfFeeState @default(CREATED)
-  quoteRequestId String?
-  bookingId      String?
-  idempotencyKey String @unique
+  id String @id @default(cuid())
+  businessId String
+  snapshotId String
+  state JfFeeState @default(CREATED)
+  idempotencyKey String
   providerSessionId String? @unique
   providerPaymentId String? @unique
-  createdAt      DateTime @default(now())
-  business       JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  quoteRequest   JfQuoteRequest? @relation(fields: [businessId, quoteRequestId], references: [businessId, id], onDelete: Restrict)
-  booking        JfBooking? @relation(fields: [businessId, bookingId], references: [businessId, id], onDelete: Restrict)
-  events         JfPaymentEvent[]
+  snapshot JfCheckoutSnapshot @relation(fields: [businessId, snapshotId], references: [businessId, id], onDelete: Restrict)
+  events JfPaymentEvent[]
+  createdAt DateTime @default(now())
   @@unique([businessId, id])
-  @@unique([businessId, quoteRequestId])
-  @@unique([businessId, bookingId])
-  @@index([businessId, state, createdAt])
+  @@unique([businessId, snapshotId])
+  @@unique([businessId, idempotencyKey])
 }
 model JfPaymentEvent {
-  id              String @id @default(cuid())
-  businessId      String
-  feeOrderId      String
+  id String @id @default(cuid())
+  businessId String
+  feeOrderId String
   providerEventId String @unique
-  eventType       String
-  receivedAt      DateTime @default(now())
-  processedAt     DateTime?
-  // No raw payment payload or customer banking details.
+  eventType String
+  receivedAt DateTime @default(now())
+  processedAt DateTime?
   order JfFeeOrder @relation(fields: [businessId, feeOrderId], references: [businessId, id], onDelete: Restrict)
   @@index([businessId, feeOrderId, receivedAt])
 }
-model JfJob {
-  id             String @id @default(cuid())
-  businessId     String
-  quoteRequestId String?
-  bookingId      String?
-  status         JfJobStatus @default(OPEN)
-  createdAt      DateTime @default(now())
-  business       JfBusiness @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  quoteRequest   JfQuoteRequest? @relation(fields: [businessId, quoteRequestId], references: [businessId, id], onDelete: Restrict)
-  booking        JfBooking? @relation(fields: [businessId, bookingId], references: [businessId, id], onDelete: Restrict)
-  @@unique([businessId, quoteRequestId])
-  @@unique([businessId, bookingId])
-  @@index([businessId, status, createdAt])
-}
 model JfNotification {
-  id         String @id @default(cuid())
+  id String @id @default(cuid())
   businessId String
-  ownerId    String
-  kind       JfNotificationKind
-  subjectId  String
-  readAt     DateTime?
-  createdAt  DateTime @default(now())
+  ownerId String
+  requestId String
+  kind JfNotificationKind
+  readAt DateTime?
+  createdAt DateTime @default(now())
   membership JfMembership @relation(fields: [businessId, ownerId], references: [businessId, ownerId], onDelete: Restrict)
+  request JfRequest @relation(fields: [businessId, requestId], references: [businessId, id], onDelete: Restrict)
   @@index([businessId, ownerId, createdAt])
 }

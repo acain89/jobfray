@@ -1,3 +1,6 @@
+> Historical Phase 1 report. Its fee and scheduling assumptions are superseded by
+> [Phase 2](PHASE2_REPORT.md); results below describe the original foundation only.
+
 # JobFray foundation verification and file inventory
 
 Branch: `feat/jobfray-rebuild`

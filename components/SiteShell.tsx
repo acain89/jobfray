@@ -20,7 +20,7 @@ export function SiteFooter() {
   return (
     <footer className="site-footer">
       <div className="container footer-inner">
-        <p>JobFray ? Local services, direct connections.</p>
+        <p>JobFray ? Local businesses, direct connections.</p>
         <Link href="/how-it-works">About fees and payments</Link>
       </div>
     </footer>

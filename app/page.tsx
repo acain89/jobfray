@@ -1,75 +1,20 @@
 import Link from "next/link";
 import { PageIntro } from "@/components/SiteShell";
 import { pageMetadata } from "@/lib/site";
-export const metadata = pageMetadata(
-  "Service businesses, connected",
-  "Meet the new JobFray: free business websites, a service directory, and simple request fees.",
-  "/",
-);
+export const metadata = pageMetadata("Your business, connected", "Free websites and discovery for rentals, services, quotes and reservations.", "/");
 export default function HomePage() {
-  return (
-    <>
-      <section className="hero">
-        <PageIntro
-          eyebrow="A new chapter for JobFray"
-          title="Good work starts with a connection."
-        >
-          <p>
-            We are building a home for service businesses to share their work,
-            get found and hear from new customers.
-          </p>
-        </PageIntro>
-        <div className="actions">
-          <Link className="button" href="/for-businesses">
-            Meet the business platform <span aria-hidden="true">?</span>
-          </Link>
-          <Link className="text-link" href="/directory">
-            Explore the directory ?
-          </Link>
-        </div>
-      </section>
-      <section className="section" aria-labelledby="model-heading">
-        <div className="section-heading">
-          <p className="eyebrow">A straightforward model</p>
-          <h2 id="model-heading">
-            Your business. Your customer relationships.
-          </h2>
-        </div>
-        <div className="grid three">
-          <article className="card">
-            <span className="step">01</span>
-            <h3>A website for your services</h3>
-            <p>
-              The new platform is designed around free professional business
-              websites, with a place for your services and availability.
-            </p>
-          </article>
-          <article className="card">
-            <span className="step">02</span>
-            <h3>A place to get found</h3>
-            <p>
-              Customers will be able to look for businesses by location, service
-              category and how the service is delivered.
-            </p>
-          </article>
-          <article className="card">
-            <span className="step">03</span>
-            <h3>A direct connection</h3>
-            <p>
-              JobFray request fees are separate from the work itself. Customers
-              pay service providers directly for actual work.
-            </p>
-          </article>
-        </div>
-      </section>
-      <aside className="notice">
-        <h2>Built in stages</h2>
-        <p>
-          The new JobFray is in development. Business registration, quote
-          payments and appointment booking are not open yet.
-        </p>
-        <Link href="/how-it-works">See how the new model works ?</Link>
-      </aside>
-    </>
-  );
+  return <>
+    <section className="hero"><PageIntro eyebrow="A new chapter for JobFray" title="Your business. More possibilities.">
+      <p>A free home for businesses offering rentals, services, quotes and reservations, with mobile and storefront options where applicable.</p>
+    </PageIntro><div className="actions"><Link className="button" href="/for-businesses">Meet the business platform</Link><Link className="text-link" href="/directory">Explore the directory</Link></div></section>
+    <section className="section" aria-labelledby="model-heading"><div className="section-heading"><h2 id="model-heading">One platform, four business modes</h2></div>
+      <div className="grid two">
+        <article className="card"><h3>Rental</h3><p>Offer items for a selected rental period.</p></article>
+        <article className="card"><h3>Service</h3><p>Help customers book the services you provide.</p></article>
+        <article className="card"><h3>Quote</h3><p>Hear what customers need before agreeing on the work.</p></article>
+        <article className="card"><h3>Reservation</h3><p>Let customers request available space or capacity.</p></article>
+      </div>
+    </section>
+    <aside className="notice"><h2>Built in stages</h2><p>JobFray is in development. Websites will be free to create and operate. Customer-paid platform fees range from $2 to $5; quote requests and genuinely unknown prices cost $3. Customers pay businesses directly for the underlying offering.</p><p>Registration, requests and payments are not open yet.</p><Link href="/how-it-works">See how the model works</Link></aside>
+  </>;
 }

@@ -1,80 +1,115 @@
-# Foundation architecture
+# Four-mode architecture
 
-## Boundaries
+## Shared boundaries
 
-`app/` contains server-rendered public pages and a liveness-only GET endpoint.
-`components/` contains the shared presentation shell. `lib/domain/` contains pure
-contracts and policies, without Next.js, Prisma clients or provider imports.
-`lib/site.ts` validates an explicitly configured public origin; it does not infer
-identity from request Host or forwarded headers. No write adapters are wired.
+`app/` owns public server-rendered presentation and a liveness-only GET endpoint.
+`lib/domain/` owns validated domain contracts and policies without provider/ORM
+imports. `lib/server/` uses Node-only imports for checkout orchestration, fee
+snapshots and schema projections; never import those modules into Client Components.
+There are no provider dependencies, persistence adapters or public write endpoints.
 
-Owner routes fail closed with 404. Domain interfaces are not an authentication
-implementation. A future server session adapter must verify identity, expiry and
-revocation before calling `requireTenantScope`; never construct verified sessions
-from JSON, query strings, host headers or a client-supplied owner/business ID.
-Membership must be checked server-side on every operation. Every owner repository
-query must include the verified business ID; customer-facing readers may return
-only published public projections, never owner/contact/payment records.
+Businesses independently enable RENTAL, SERVICE, QUOTE and RESERVATION. The proposed
+business-mode relation retains disabled configuration rows to preserve history.
+One offering has one configuration per applicable mode. Fulfillment is an independent
+set: MOBILE, STOREFRONT or both. BOTH is not a third delivery choice and REMOTE is
+not part of this approved scope. A request selects exactly one supported option.
+An empty business mode set is allowed for setup; an active usable offering requires
+at least one enabled configuration. Disabling modes blocks new transactions, not
+historical reads or fulfillment of existing obligations.
 
-## Product contracts
+## Domain and schema alignment
 
-- Business: membership-isolated workspace and explicit publication status.
-- Website/domain: structured content; free subdomain or optional custom domain.
-  Never publish arbitrary HTML/scripts. Reserve platform/admin/auth hostnames,
-  normalize hostnames, prove exact domain ownership and require verified status.
-  No wildcard DNS, TLS automation or domain dispatch is implemented here.
-- Directory: location, service category and mode (`AT_CUSTOMER`, `AT_BUSINESS`,
-  `REMOTE`). Inputs are bounded and output is React-escaped. Actual pagination,
-  matching and published-listing queries belong in a later read adapter.
-- Services: duration, buffers and concurrent capacity. Scheduling contracts
-  describe 14 business-local calendar dates `[today, today + 14)`. Business IANA
-  time zone and UTC appointment instants are separate. Weekly local windows are
-  replaced by dated exception windows; an empty replacement closes the day.
-- Booking: a future engine must handle DST gaps/overlaps explicitly, apply buffers
-  to overlap checks and reserve capacity transactionally under a shared lock.
-  Serializable transactions/locks and hold expiry must protect all competing
-  booking, cancellation, confirmation and availability-edit paths. Do not use an
-  in-memory count, a blanket single-slot unique key or trust displayed availability.
-  No availability expansion or booking writes are implemented in this foundation.
-- Quotes: a submitted request belongs to one business/service; no claims about
-  provider acceptance or response guarantees. Jobs link to quotes or bookings;
-  actual work and its payment remain between customer and service provider.
-- Platform fees: exact integer cents, $3 quote request / $5 confirmed appointment,
-  USD, JobFray recipient only. Purpose and fee are paired in the domain union.
-  Future checkout must derive the fee server-side; never accept amount, destination
-  or paid status from a browser. No business payouts or Connect onboarding.
-- Notifications: business/owner-scoped event references and read state only.
-  Delivery channels, consent, worker and retries are intentionally not implemented.
+Offering configurations and requests are discriminated unions with runtime parsers.
+Quote configurations have no schedule; quote requests reject scheduling fields.
+A requested assessment appointment must be a separate scheduled request. Service
+has optional explicit timing; Rental has an optional duration unit; Reservation has
+an optional capacity unit. Null means unresolved and cannot authorize scheduling.
+The schema uses enum/typed nullable columns, not arbitrary configuration JSON;
+`mapOfferingModeRow` rejects cross-mode fields, incomplete known prices and unsafe
+BigInt conversion. Missing known prices must never fall back to UNKNOWN.
 
-## Before paid requests can exist
+## Tenant isolation
 
-Choose and approve the quote submission/payment ordering and appointment payment/
-capacity-confirmation sequence. Define hold expiry, abandoned checkout, capacity
-loss after payment, cancellation, duplicate charge prevention and refund handling.
-A browser return must never confirm payment. Provider signature verification,
-durable event deduplication, verified financial transitions and reconciliation
-must be designed and tested before a checkout endpoint is introduced. No live
-payment dependencies or credentials are required by this foundation.
+A future session adapter must verify identity, expiry and revocation before creating
+a tenant scope from active membership. Branded TypeScript IDs are not authentication.
+Every repository operation must include verified business ID, including notifications,
+resources, idempotency lookup and checkout history. Composite foreign keys bind
+business-owned references. Public readers return only published projections and
+never expose customer contacts, allocations, owner identity or payment records.
+Exact normalized verified hostname resolution is separate from owner authorization;
+never trust caller-supplied business IDs or forwarded Host as identity.
 
-## Safety and scope
+## Resources, availability and holds
 
-Legacy worker, post, billing, identity and SMS application routes were removed,
-not repointed into the new model. Existing legacy records and external accounts
-are not deleted or cancelled. Confirm any live subscriptions, pending obligations,
-retention needs and service callbacks before an eventual production replacement.
-Legacy users are not automatically converted into new business owners.
+Resources represent shared capacity; multiple offerings and modes can reference the
+same resource. Requirements specify units per selected quantity. Calendar rules
+and replacement exceptions belong to resources; an empty exception closes the day.
+Policy explicitly supplies horizon, minimum lead time, hold duration and version;
+there is no universal 14-day horizon. Business-local dates/time zones and UTC
+allocation instants remain separate. UTC intervals are half-open `[start, end)`.
 
-Public pages clearly say the service is in development. No fake businesses,
-accounts, testimonials or functional-looking signup/pay/booking buttons exist.
-Public navigation works without client JavaScript. CSS is mobile-first responsive,
-with labels, skip navigation, visible focus and no remote font/asset dependency.
+`assertCapacity` validates tenant/resource identity, positive safe units and intervals,
+counts live holds and confirmed allocations, ignores expired holds and released
+allocations, and sweeps interval events to find true concurrent occupancy. Different
+request IDs share the same capacity. Adjacent intervals do not overlap. It does not
+expand calendars, select assets, calculate travel, determine rental rounding, or
+write bookings. It is not a standalone concurrency guarantee.
 
-## Documentation consulted
+A future AllocationStore adapter MUST atomically lock all required resources in
+stable order, inspect overlapping allocations across ALL offerings, check opening
+windows and approved mode policy, expire/reconcile holds, check capacity and write
+request/allocation state together. Confirmation, cancellation, rescheduling and
+capacity/availability edits need the same locks and transactional discipline.
+Database concurrency tests are a later gate; there is no in-memory booking store.
 
-- https://nextjs.org/docs/app/getting-started/installation
-- https://nextjs.org/docs/app/api-reference/file-conventions/page
-- https://nextjs.org/docs/app/api-reference/config/next-config-js
-- https://www.prisma.io/docs/orm/v6/reference/prisma-schema-reference
+## Server-authoritative fees and history
 
-Use version-appropriate Prisma 5 behavior; current Prisma 7 config examples do
-not apply to the retained Prisma 5 datasource/client setup.
+Website creation/operation is free, without subscriptions, business commissions or
+Stripe Connect. Customers pay businesses directly for underlying offerings. JobFray
+collects only its own customer-paid USD platform fee and pays its processing costs.
+
+`calculatePlatformFee` in `lib/server/fees.ts` is the only fee calculator:
+0 to 3000 -> 200; 3001 to 7500 -> 300; 7501 to 15099 -> 400; 15100+ -> 500 cents.
+QUOTE and explicitly UNKNOWN prices -> 300 cents. Even quotes reject malformed
+monetary inputs. Zero is known, not unknown. All monetary inputs and intermediate
+products must be nonnegative safe integers; fractional cents and overflow fail.
+
+Stored pricing explicitly selects FIXED, QUANTITY or rental-only QUANTITY_DURATION.
+FIXED permits only quantity 1 and no duration; QUANTITY multiplies the quantity;
+QUANTITY_DURATION multiplies unit price, quantity and positive integer duration units.
+The last basis needs an explicit stored HOUR/DAY unit. API adapters must derive or
+verify billable duration against an approved interval/rounding policy; browser units
+are never authoritative. No date-to-duration or rental rounding policy is invented.
+Unknown must be an explicitly valid catalog state, never missing/invalid input.
+
+`createCheckoutSnapshot` rejects fee/subtotal overrides and unsupported modes or
+fulfillments. It freezes a primitive-only snapshot containing original subtotal,
+fee, unit amount, basis, quantity, duration, mode, fulfillment and policy version.
+`prepareCheckout` adds request-locked, payload-hashed idempotency through a storage
+port. Identical replay returns saved facts before consulting current catalog;
+conflicting payload/key or tenant mismatch fails. The adapter must authorize the
+request, bind catalog to its offering, verify selected request facts and persist
+snapshot/order atomically. This phase supplies no database implementation.
+
+Snapshots are insert-only accepted facts; never update them on catalog edits or
+reprice history. Adapter privileges and a reviewed immutable-row database control
+are required before persistence launches. Payment state belongs to the fee order,
+not the request or snapshot. Unknown-price quotes are not forced into an
+AWAITING_PAYMENT request state. Settlement, event verification, refund ordering and
+capacity confirmation remain separate approved workflows to implement later.
+
+## Route and mobile architecture
+
+Keep one `/directory`, business website route `/sites/[slug]` and `/dashboard`.
+Directory mode/fulfillment filters must match the same active offering configuration,
+with business + website publication and enabled business mode enforced by future
+read adapters. No separate four-mode application stacks. Future public request
+commands should resolve a published offering and selected mode server-side;
+shared application services dispatch validated mode-specific data. Owner operations
+must authenticate before any tenant lookup or write.
+
+The shell and native GET form work without client JavaScript. Controls are labeled,
+48px high and stack on narrow screens. The fee table has caption and scoped headers.
+Keep mode-specific transaction inputs progressive: rental range/quantity, service
+time/location, quote requirements, reservation date/capacity. No transaction UI or
+browser accessibility audit is claimed. Noindex remains deliberate during development.
