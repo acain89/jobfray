@@ -408,3 +408,11 @@ input[type="checkbox"] { width: 20px; min-height: 20px; height: 20px; flex-shrin
 @media print { .site-header,.site-footer,.dashboard-heading,.dashboard-tabs,.sandbox-banner,button,.actions,.save-state { display: none !important; } .main-content { padding: 0; } .dashboard > section > :not(.print-card) { display: none !important; } .print-card,.confirmation-card { border: none; max-width: 100%; break-inside: avoid; } .confirmation-card a { color: black; text-decoration: none; } }
 
 .request-fields {border:0;padding:0;min-width:0;}
+
+.phone-confirmation {position:fixed;inset:0;margin:auto;width:min(92vw,28rem);max-height:90dvh;overflow:auto;padding:1.5rem;border:0;border-radius:1rem;text-align:center;box-shadow:0 1rem 4rem #0005;}
+.phone-confirmation::backdrop {background:rgb(0 0 0 / 55%);}
+.phone-confirmation .confirmed-phone {font-size:clamp(1.4rem,6vw,2rem);font-weight:800;overflow-wrap:anywhere;margin:1.5rem 0;}
+.phone-confirmation button {width:100%;min-height:48px;white-space:normal;}
+.phone-confirm-yes {background:#176b43;color:#fff;border:2px solid #176b43;font-weight:700;}
+.phone-confirm-no {background:#fff;color:#174735;border:2px solid #176b43;}
+.phone-confirmation button:focus-visible {outline:3px solid #174735;outline-offset:3px;}

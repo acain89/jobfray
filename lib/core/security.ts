@@ -1,7 +1,7 @@
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual, createHash, randomUUID, randomInt } from "node:crypto";
+import { randomBytes, scrypt as scryptCallback, timingSafeEqual, createHash, randomUUID } from "node:crypto";
 import type { Repository, Transaction } from "./repository";
 import type { Scope, Token, Outbox } from "./model";
-import { AppError, email, phone, string } from "./validation";
+import { AppError, email, string } from "./validation";
 export const secret = () => randomBytes(32).toString("base64url");
 export const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 let hashing = 0;
@@ -164,38 +164,4 @@ export async function consumeAccountToken(repo: Repository, raw: unknown, purpos
         }
     });
     return { message: purpose === "VERIFY_EMAIL" ? "Email verified. You can sign in." : "Password updated. Sign in with your new password." };
-}
-export async function startContact(repo: Repository, input: unknown, now: Date) {
-    const number = phone(input);
-    await rateLimit(repo, "contact:" + number, 5, now);
-    const code = String(randomInt(100000, 1000000)), id = randomUUID();
-    await repo.transaction(["contact:" + number], async (tx) => {
-        await tx.put("tokens", { id, hash: hash(id + ":" + code), purpose: "CUSTOMER_CODE", subject: number, context: "", expiresAt: new Date(now.getTime() + 10 * 60000).toISOString(), usedAt: null, attempts: 0 });
-        await enqueue(tx, { businessId: null, destination: number, channel: "SMS", kind: "CUSTOMER_CODE", body: id + ":" + code, key: "contact:" + id }, now);
-    });
-    return { challengeId: id };
-}
-export async function verifyContact(repo: Repository, id: string, code: string, now: Date) {
-    const result = await repo.transaction(["contact:" + id], async (tx) => {
-        const token = await tx.get("tokens", id);
-        if (!token || token.purpose !== "CUSTOMER_CODE" || token.usedAt || token.attempts >= 5 || Date.parse(token.expiresAt) <= now.getTime())
-            return null;
-        token.attempts++;
-        if (token.hash !== hash(id + ":" + code)) {
-            await tx.put("tokens", token);
-            return null;
-        }
-        token.usedAt = now.toISOString();
-        await tx.put("tokens", token);
-        return issue(tx, "CUSTOMER_PROOF", token.subject, now, 60);
-    });
-    if (!result)
-        throw new AppError("Invalid or expired verification code");
-    return { proof: result };
-}
-export async function contactProof(tx: Transaction, raw: string, number: string, now: Date) {
-    const token = (await tx.find("tokens", { hash: hash(raw), purpose: "CUSTOMER_PROOF" }))[0];
-    if (!token || token.subject !== number || Date.parse(token.expiresAt) <= now.getTime())
-        throw new AppError("Verify your contact phone before continuing", 403);
-    return token;
 }

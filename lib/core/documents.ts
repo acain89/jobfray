@@ -10,7 +10,11 @@ export function storedDocument<K extends Table>(table: K, input: unknown): Table
     if (table === "businesses") {
         const fields = ["name", "slug", "category", "description", "email", "phone", "address", "addressPublic", "city", "zip", "latitude", "longitude", "timeZone", "modes", "directory"];
         profile(Object.fromEntries(fields.map(k => [k, v[k]])));
-        if(v.discoveryPoint!==undefined){const point=record(v.discoveryPoint);number(point.latitude,-90,90);number(point.longitude,-180,180);}
+        if (v.discoveryPoint !== undefined) {
+            const point = record(v.discoveryPoint);
+            number(point.latitude, -90, 90);
+            number(point.longitude, -180, 180);
+        }
         content(v.draft);
         if (v.published !== null)
             content(v.published);
@@ -46,6 +50,8 @@ export function storedDocument<K extends Table>(table: K, input: unknown): Table
             throw new AppError("Invalid stored interval", 503);
     }
     if (table === "snapshots") {
+        if (v.customerPhone !== undefined && phone(v.customerPhone) !== v.customerPhone)
+            throw new AppError("Invalid stored contact phone", 503);
         if (v.underlyingSubtotalCents !== null)
             integer(v.underlyingSubtotalCents);
         if (v.unitAmountCents !== null)

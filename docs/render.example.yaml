@@ -46,3 +46,5 @@ databases:
     ipAllowList: []
 # Add the remaining validated variables from production.env.example before any authorized provisioning.
 # Migrations run in a separately authorized job with a distinct owner secret, never the web service.
+
+# Customer contact uses browser-bound capabilities; no customer delivery service is required.

@@ -1,5 +1,6 @@
+import { createRequestCapability } from "../lib/core/request-capability";
 import { MemoryRepository, type Repository } from "../lib/core/repository";
-import { register, consumeAccountToken, login, startContact, verifyContact } from "../lib/core/security";
+import { register, consumeAccountToken, login } from "../lib/core/security";
 import { saveProfile, saveResource, saveOffering, autosave, publish } from "../lib/core/business";
 import { BookingService } from "../lib/core/booking";
 import { MockGeocoder, MockPaymentAdapter } from "../lib/core/providers";
@@ -26,10 +27,9 @@ async function fixture(capacity = 10, repo: Repository = new MemoryRepository())
     const offering = await saveOffering(repo, owner.token, business.id, null, { name: "One multi-mode offering", description: "Synthetic test offering", photos: [], active: true, resourceId: resource.id, configurations: profile.modes.map(m => config(m as BusinessMode)) }, now);
     await autosave(repo, owner.token, business.id, business.revision, { ...EMPTY_CONTENT, headline: "Synthetic business", description: "A genuine test fixture" }, now);
     await publish(repo, owner.token, business.id, now);
-    const phone = "+15125550124", challenge = await startContact(repo, phone, now), code = await repo.transaction([], async (tx) => (await tx.find("outbox", { kind: "CUSTOMER_CODE" }))[0]!.body.split(":")[1]!);
-    const proof = (await verifyContact(repo, challenge.challengeId, code, now)).proof;
+    const capability = (await createRequestCapability(repo, business.id, "synthetic-browser-capability-binding", now)).capability;
     const payments = new MockPaymentAdapter("synthetic-mock-payment-signing-key-123456789"), geo = new MockGeocoder(), service = new BookingService(repo, geo, payments, "synthetic-confirmation-signing-key-123456789");
-    return { repo, owner, business, resource, offering, proof, payments, geo, service };
+    return { repo, owner, business, resource, offering, capability, payments, geo, service };
 }
 function input(f: Awaited<ReturnType<typeof fixture>>, mode: BusinessMode = "SERVICE"): Selection { return { businessId: f.business.id, offeringId: f.offering.id, mode, fulfillment: "STOREFRONT", quantity: mode === "RENTAL" ? 2 : 1, partySize: mode === "RESERVATION" ? 3 : 1, startLocal: mode === "QUOTE" ? "" : "2026-11-24T10:00", endLocal: mode === "QUOTE" ? "" : mode === "RENTAL" ? "2026-11-24T12:00" : "2026-11-24T11:00", ambiguity: "REJECT", contact: { name: "Synthetic customer", phone: "+15125550124", address: "", notes: mode === "QUOTE" ? "A short synthetic job description" : "" }, photos: [] }; }
 async function paid(f: Awaited<ReturnType<typeof fixture>>, result: {

@@ -1,3 +1,4 @@
+import { requestCapability } from "./request-capability";
 import { randomUUID, createHmac } from "node:crypto";
 import type { Repository, Transaction } from "./repository";
 import type { Allocation, RequestRecord, Selection, Snapshot } from "./model";
@@ -5,7 +6,7 @@ import type { BusinessId, OfferingId, OwnerId, ResourceId } from "../domain/type
 import type { Geocoder, PaymentAdapter } from "./providers";
 import { distanceMiles } from "./providers";
 import { AppError, selection, string } from "./validation";
-import { hash, contactProof, enqueue, audit, ownerScope } from "./security";
+import { hash, rateLimit, enqueue, audit, ownerScope } from "./security";
 import { checkSchedule, localInstant, localParts, operatingWindows, startOfDay, addDays } from "./time";
 import { calculatePlatformFee, PRICING_POLICY_VERSION } from "../server/fees";
 import { assertCapacity } from "../domain/capacity";
@@ -20,6 +21,22 @@ function capacity(existing: Allocation[], candidate: Allocation, limit: number, 
         throw new AppError("That capacity is no longer available. Choose another period.", 409);
     }
 }
+function selectionPrice(s: Selection, config: import("./model").ModeConfig, timing: ReturnType<typeof checkSchedule> | null) {
+    let subtotal: number | null = null, priceLabel = "Variable price - arrange the underlying price directly with the business";
+    if (config.price.kind !== "VARIABLE") {
+        const factor = config.mode === "RENTAL" ? s.quantity * (timing?.durationUnits ?? 1) : config.price.kind === "PER_PERSON" ? s.partySize : config.price.kind === "PER_NIGHT" ? (timing?.durationUnits ?? 1) : 1;
+        integer(factor, 1);
+        subtotal = integer(config.price.cents * factor);
+        priceLabel = config.price.kind === "STARTING" ? "Advertised minimum; final price is agreed directly with the business" : "Underlying price; pay the business directly";
+    }
+    return { subtotal, priceLabel };
+}
+function assertAcceptedReview(accepted:unknown,facts:object){
+ if(accepted===undefined)return;
+ if(!accepted||typeof accepted!=="object"||Array.isArray(accepted))throw new AppError("Review the current price before checkout");
+ const expected=accepted as Record<string,unknown>,actual=facts as Record<string,unknown>;
+ for(const key of ["underlyingSubtotalCents","platformFeeCents","quantity","partySize","durationUnits","durationUnit","customerPhone","priceLabel","pricingPolicyVersion"])if(expected[key]!==actual[key])throw new AppError("Price or request details changed. Review your request again.",409);
+}
 export interface CheckoutResult {
     requestId: string;
     confirmationToken: string;
@@ -27,44 +44,45 @@ export interface CheckoutResult {
     status: RequestRecord["status"];
 }
 export class BookingService {
-    constructor(readonly repo: Repository, readonly geocoder: Geocoder, readonly payments: PaymentAdapter, private confirmationKey: string, private keyVersion = "v1", private previousKeys: Readonly<Record<string, string>> = {}, private boundContacts = false) {
+    constructor(readonly repo: Repository, readonly geocoder: Geocoder, readonly payments: PaymentAdapter, private confirmationKey: string, private keyVersion = "v1", private previousKeys: Readonly<Record<string, string>> = {}, private durableCheckout = false) {
         if (confirmationKey.length < 32 || !/^[a-z0-9-]{1,40}$/.test(keyVersion) || Object.entries(previousKeys).some(([id, key]) => !(/^[a-z0-9-]{1,40}$/.test(id)) || typeof key !== "string" || key.length < 32))
             throw new Error("Invalid confirmation signing configuration");
     }
-    private confirmationToken(id: string, version = this.keyVersion) { const key = version === this.keyVersion ? this.confirmationKey : this.previousKeys[version]; if (!key)
-        throw new AppError("Historical confirmation key is unavailable", 503); return createHmac("sha256", key).update("confirmation:" + id).digest("base64url"); }
-    async checkout(input: unknown, proof: string, key: string, now: Date): Promise<CheckoutResult> {
+    private confirmationToken(id: string, version = this.keyVersion) {
+        const key = version === this.keyVersion ? this.confirmationKey : this.previousKeys[version];
+        if (!key)
+            throw new AppError("Historical confirmation key is unavailable", 503);
+        return createHmac("sha256", key).update("confirmation:" + id).digest("base64url");
+    }
+    async checkout(input: unknown, capability: string, key: string, now: Date, browser: string,acceptedReview?:unknown): Promise<CheckoutResult> {
         const s = selection(input);
         string(key, 100);
-        const binding = hash(JSON.stringify([s.businessId, s.offeringId, s.mode, key]));
-        const validateProof = async (tx: Transaction) => { const verified = await contactProof(tx, proof, s.contact.phone, now); if (this.boundContacts && verified.context !== s.businessId + ":" + binding)
-            throw new AppError("Verification belongs to another request", 403); return verified; };
+        const validateCapability = (tx: Transaction) => requestCapability(tx, capability, s.businessId, browser, now);
         const payloadHash = hash(JSON.stringify(s));
         const replay = async (tx: Transaction): Promise<CheckoutResult | null> => {
             const previous = (await tx.find("requests", { businessId: s.businessId, idempotencyKey: key }))[0];
             if (previous) {
+                if (previous.browserHash !== hash(browser))
+                    throw new AppError("Request belongs to another browser", 403);
                 if (previous.payloadHash !== payloadHash)
                     throw new AppError("Idempotency key was used with a different request", 409);
                 const snap = (await tx.find("snapshots", { businessId: s.businessId, requestId: previous.id }))[0]!;
+                assertAcceptedReview(acceptedReview,snap);
                 return { requestId: previous.id, confirmationToken: this.confirmationToken(previous.id, previous.confirmationKeyVersion ?? "v1"), snapshot: snap, status: previous.status };
             }
             return null;
         };
-        const cached = await this.repo.transaction([], async (tx) => { await validateProof(tx); return replay(tx); });
+        const cached = await this.repo.transaction([], async (tx) => { await validateCapability(tx); return replay(tx); });
         if (cached)
             return cached;
+        await rateLimit(this.repo, "checkout-browser:" + s.businessId + ":" + hash(browser), 10, now);
         // No provider call occurs before contact verification or on a historical replay.
         const point = s.fulfillment === "MOBILE" ? await this.geocoder.address(s.contact.address) : null;
         return this.repo.transaction(["tenant:" + s.businessId], async (tx) => {
-            await validateProof(tx);
+            await validateCapability(tx);
             const existing = await replay(tx);
             if (existing)
                 return existing;
-            const verifiedProof = await validateProof(tx);
-            if (this.boundContacts && verifiedProof.usedAt)
-                throw new AppError("Contact verification was already used", 403);
-            if (this.boundContacts)
-                await tx.put("tokens", { ...verifiedProof, usedAt: now.toISOString() });
             const business = await tx.get("businesses", s.businessId), offering = await tx.get("offerings", s.offeringId);
             if (!business || business.status !== "PUBLISHED" || !business.published || !offering || offering.businessId !== s.businessId || !offering.active || !business.modes.includes(s.mode))
                 throw new AppError("Offering is not available", 404);
@@ -82,8 +100,10 @@ export class BookingService {
             if (s.mode === "QUOTE" && (!s.contact.notes || s.photos.length < 1 || s.startLocal || s.endLocal))
                 throw new AppError("Quotes require a description and 1-3 photos, without scheduling");
             for (const id of s.photos) {
+                if ((await tx.find("requests", { businessId: s.businessId }, { limit: 1, containsPhoto: id })).length)
+                    throw new AppError("Quote image already belongs to another request", 403);
                 const media = await tx.get("media", id);
-                if (!media || media.businessId !== business.id || media.kind !== "QUOTE" || media.proofHash !== hash(proof) || media.expiresAt && Date.parse(media.expiresAt) <= now.getTime())
+                if (!media || media.businessId !== business.id || media.kind !== "QUOTE" || media.capabilityHash !== hash(capability) || media.expiresAt && Date.parse(media.expiresAt) <= now.getTime())
                     throw new AppError("Invalid or expired quote image");
             }
             const id = randomUUID(), token = this.confirmationToken(id), expiresAt = new Date(now.getTime() + 15 * 60000).toISOString();
@@ -98,25 +118,37 @@ export class BookingService {
                 capacity(await tx.find("allocations", { businessId: business.id, resourceId: resource.id }, { ranges: [{ field: "end", operator: "gt", value: allocation.start }, { field: "start", operator: "lt", value: allocation.end }] }), allocation, resource.capacity, now);
                 // Request is inserted before its allocation below to satisfy database foreign keys.
                 const request = this.request(s, id, expiresAt, hash(token), business, timing, offering.name, now, config.mode === "RESERVATION" ? config.arrivalInstructions : "");
-                await tx.put("requests", { ...request, idempotencyKey: key, payloadHash });
+                await tx.put("requests", { ...request, browserHash: hash(browser), idempotencyKey: key, payloadHash });
                 await tx.put("allocations", allocation);
             }
             else
-                await tx.put("requests", { ...this.request(s, id, expiresAt, hash(token), business, null, offering.name, now, ""), idempotencyKey: key, payloadHash });
-            let subtotal: number | null = null, priceLabel = "Variable price - arrange the underlying price directly with the business";
-            if (config.price.kind !== "VARIABLE") {
-                const factor = config.mode === "RENTAL" ? s.quantity * (timing?.durationUnits ?? 1) : config.price.kind === "PER_PERSON" ? s.partySize : config.price.kind === "PER_NIGHT" ? (timing?.durationUnits ?? 1) : 1;
-                integer(factor, 1);
-                subtotal = integer(config.price.cents * factor);
-                priceLabel = config.price.kind === "STARTING" ? "Advertised minimum; final price is agreed directly with the business" : "Underlying price; pay the business directly";
-            }
+                await tx.put("requests", { ...this.request(s, id, expiresAt, hash(token), business, null, offering.name, now, ""), browserHash: hash(browser), idempotencyKey: key, payloadHash });
+            const { subtotal, priceLabel } = selectionPrice(s, config, timing);
             const snapshot: Snapshot = Object.freeze({ id: randomUUID(), businessId: business.id as BusinessId, offeringId: offering.id as OfferingId, requestId: id, mode: s.mode, fulfillment: s.fulfillment, quantity: s.quantity, partySize: s.partySize, durationUnits: timing?.durationUnits ?? null,
                 durationUnit: config.price.kind === "DAILY" || config.price.kind === "PER_NIGHT" ? "DAY" : config.price.kind === "HOURLY" ? "HOUR" : null,
                 priceKind: subtotal === null ? "UNKNOWN" : "KNOWN", priceBasis: subtotal === null ? null : config.mode === "RENTAL" || config.price.kind === "PER_NIGHT" ? "QUANTITY_DURATION" : config.price.kind === "PER_PERSON" ? "QUANTITY" : "FIXED", unitAmountCents: config.price.kind === "VARIABLE" ? null : config.price.cents,
-                underlyingSubtotalCents: subtotal, platformFeeCents: calculatePlatformFee(s.mode, subtotal), pricingPolicyVersion: PRICING_POLICY_VERSION, currency: "USD", recipient: "JOBFRAY", processingCostPayer: "JOBFRAY", createdAt: now.toISOString(), priceLabel, policyDisclosureVersion: "jf-facilitation-v1" });
+                underlyingSubtotalCents: subtotal, platformFeeCents: calculatePlatformFee(s.mode, subtotal), pricingPolicyVersion: PRICING_POLICY_VERSION, currency: "USD", recipient: "JOBFRAY", processingCostPayer: "JOBFRAY", createdAt: now.toISOString(), priceLabel, customerPhone: s.contact.phone, policyDisclosureVersion: "jf-facilitation-v1" });
+            assertAcceptedReview(acceptedReview,snapshot);
             await tx.put("snapshots", snapshot);
-            await audit(tx, business.id, "CHECKOUT_HELD", "CUSTOMER_VERIFIED", now, id);
+            await audit(tx, business.id, "CHECKOUT_HELD", "BROWSER_CAPABILITY", now, id);
             return { requestId: id, confirmationToken: token, snapshot, status: "PENDING_PAYMENT" };
+        });
+    }
+    async preview(input: unknown, now: Date) {
+        const s = selection(input);
+        return this.repo.transaction([], async (tx) => {
+            const business = await tx.get("businesses", s.businessId), offering = await tx.get("offerings", s.offeringId), config = offering?.configurations.find(c => c.mode === s.mode);
+            if (!business?.published || business.status !== "PUBLISHED" || !offering?.active || offering.businessId !== business.id || !business.modes.includes(s.mode) || !config || !config.fulfillments.includes(s.fulfillment))
+                throw new AppError("Offering unavailable", 404);
+            let timing: ReturnType<typeof checkSchedule> | null = null;
+            if (config.mode !== "QUOTE") {
+                const resource = offering.resourceId ? await tx.get("resources", offering.resourceId) : null;
+                if (!resource || resource.businessId !== business.id)
+                    throw new AppError("Capacity unavailable");
+                timing = checkSchedule(s, config, resource.hours, business.timeZone, now);
+            }
+            const { subtotal, priceLabel } = selectionPrice(s, config, timing);
+            return {pricingPolicyVersion:PRICING_POLICY_VERSION, underlyingSubtotalCents: subtotal, platformFeeCents: calculatePlatformFee(s.mode, subtotal), priceLabel, quantity: s.quantity, partySize: s.partySize, durationUnits: timing?.durationUnits ?? null, durationUnit: config.price.kind === "DAILY" || config.price.kind === "PER_NIGHT" ? "DAY" : config.price.kind === "HOURLY" ? "HOUR" : null, customerPhone: s.contact.phone };
         });
     }
     private request(s: Selection, id: string, expiresAt: string, confirmationHash: string, b: {
@@ -190,7 +222,7 @@ export class BookingService {
             if (request.status !== "PENDING_PAYMENT" || Date.parse(request.expiresAt) <= now.getTime())
                 throw new AppError("Checkout hold expired or already processed", 409);
             const snapshot = (await tx.find("snapshots", { businessId: request.businessId, requestId }))[0]!;
-            if (this.boundContacts) {
+            if (this.durableCheckout) {
                 const id = "checkout-create:" + request.id;
                 if (!await tx.get("operations", id))
                     await tx.put("operations", { id, businessId: request.businessId, kind: "CHECKOUT_CREATE", state: "RUNNING", availableAt: now.toISOString(), attempts: 1, leaseUntil: null, payload: { requestId: request.id, amountCents: snapshot.platformFeeCents, startedAt: now.toISOString() } });
@@ -203,12 +235,12 @@ export class BookingService {
             if (current.paymentIntentId && current.paymentIntentId !== intent.id)
                 throw new AppError("Provider idempotency conflict", 409);
             await tx.put("requests", { ...current, paymentIntentId: intent.id });
-            if (this.boundContacts) {
+            if (this.durableCheckout) {
                 const prepared = await tx.get("operations", "checkout-create:" + current.id);
                 if (prepared)
                     await tx.put("operations", { ...prepared, state: "DONE", payload: { ...prepared.payload, sessionId: intent.id } });
             }
-            if (this.boundContacts) {
+            if (this.durableCheckout) {
                 const id = "checkout:" + intent.id;
                 if (!await tx.get("operations", id))
                     await tx.put("operations", { id, businessId: current.businessId, kind: "CHECKOUT_RECONCILE", state: "PENDING", availableAt: now.toISOString(), attempts: 0, leaseUntil: null, payload: { sessionId: intent.id, expiresAt: current.expiresAt } });
@@ -276,7 +308,6 @@ export class BookingService {
                 await enqueue(tx, { businessId, destination: (await tx.get("accounts", business!.ownerId))!.email, channel: "EMAIL", kind: "CONFIRMED_REQUEST", body: `${request.reference}: ${request.offeringName}. Open your authenticated JobFray dashboard for details.`, key: "confirmed-email:" + request.id }, now);
                 if (business?.pushEnabled)
                     await enqueue(tx, { businessId, destination: business.ownerId, channel: "PUSH", kind: "CONFIRMED_REQUEST", body: "A new request is available in your dashboard.", key: "confirmed-push:" + request.id }, now);
-                await enqueue(tx, { businessId, destination: request.contact.phone, channel: "SMS", kind: "CUSTOMER_CONFIRMATION", body: "/confirmation#access=" + this.confirmationToken(request.id, request.confirmationKeyVersion ?? "v1"), key: "confirmation:" + request.id }, now);
                 await audit(tx, businessId, "REQUEST_CONFIRMED", "PAYMENT", now, request.id);
             }
             await tx.put("requests", request);
@@ -290,8 +321,8 @@ export class BookingService {
                 throw new AppError("Confirmation not found", 404);
             const snapshot = (await tx.find("snapshots", { businessId: request.businessId, requestId: request.id }))[0]!;
             if (!request.confirmedAt)
-                return { status: request.status, reference: request.reference, snapshot };
-            return { status: request.status, reference: request.reference, snapshot, request };
+                return { accessToken: token, status: request.status, reference: request.reference, snapshot };
+            return { accessToken: token, status: request.status, reference: request.reference, snapshot, request };
         });
     }
     async reconcile(now: Date) {
@@ -329,17 +360,19 @@ export class BookingService {
     }
 }
 export async function deliverNotifications(repo: Repository, transport: import("./providers").NotificationTransport, now: Date) {
-    const began=performance.now();
+    const began = performance.now();
     const batch = await repo.transaction(["outbox-worker"], async (tx) => {
-        const rows = [...await tx.find("outbox", { state: "PENDING" }, { limit: 50, ranges: [{ field: "availableAt", operator: "lte", value: now.toISOString() }] }), ...await tx.find("outbox", { state: "SENDING" }, { limit: 50, ranges: [{ field: "availableAt", operator: "lte", value: now.toISOString() }, { field: "leaseUntil", operator: "lte", value: now.toISOString() }] })].filter(r => r.state !== "SENT" && Date.parse(r.availableAt) <= now.getTime() && (!r.leaseUntil || Date.parse(r.leaseUntil) <= now.getTime())).slice(0, 50);
+        const rows = [...await tx.find("outbox", { state: "PENDING" }, { limit: 50, oneOf: { field: "channel", values: ["EMAIL", "PUSH"] }, ranges: [{ field: "availableAt", operator: "lte", value: now.toISOString() }] }), ...await tx.find("outbox", { state: "SENDING" }, { limit: 50, oneOf: { field: "channel", values: ["EMAIL", "PUSH"] }, ranges: [{ field: "availableAt", operator: "lte", value: now.toISOString() }, { field: "leaseUntil", operator: "lte", value: now.toISOString() }] })].filter(r => r.state !== "SENT" && Date.parse(r.availableAt) <= now.getTime() && (!r.leaseUntil || Date.parse(r.leaseUntil) <= now.getTime())).slice(0, 50);
         const leased = rows.map(row => ({ ...row, state: "SENDING" as const, leaseUntil: new Date(now.getTime() + 60000).toISOString(), leaseToken: randomUUID() }));
         for (const row of leased)
             await tx.put("outbox", row);
         return leased;
     });
     for (const row of batch) {
-        const owned=await repo.transaction(["outbox:"+row.id],async tx=>{const current=await tx.get("outbox",row.id);if(!current||current.state!=="SENDING"||current.leaseToken!==row.leaseToken)return false;await tx.put("outbox",{...current,leaseUntil:new Date(now.getTime()+performance.now()-began+60000).toISOString()});return true;});
-        if(!owned)continue;
+        const owned = await repo.transaction(["outbox:" + row.id], async (tx) => { const current = await tx.get("outbox", row.id); if (!current || current.state !== "SENDING" || current.leaseToken !== row.leaseToken)
+            return false; await tx.put("outbox", { ...current, leaseUntil: new Date(now.getTime() + performance.now() - began + 60000).toISOString() }); return true; });
+        if (!owned)
+            continue;
         let sent = false;
         try {
             await transport.send(row);

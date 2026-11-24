@@ -17,7 +17,7 @@ export interface Session {
 export interface Token {
     id: string;
     hash: string;
-    purpose: "VERIFY_EMAIL" | "RESET_PASSWORD" | "CUSTOMER_CODE" | "CUSTOMER_PROOF";
+    purpose: "VERIFY_EMAIL" | "RESET_PASSWORD" | "REQUEST_CAPABILITY";
     subject: string;
     expiresAt: string;
     attempts: number;
@@ -156,6 +156,7 @@ export interface Selection {
 }
 export type RequestStatus = "PENDING_PAYMENT" | "CONFIRMED" | "DELIVERED" | "EXPIRED" | "RELEASED" | "REFUND_REQUIRED";
 export interface RequestRecord {
+    browserHash?: string;
     id: string;
     businessId: string;
     offeringId: string;
@@ -204,6 +205,7 @@ export interface Snapshot extends Omit<CheckoutSnapshot, "businessId" | "offerin
     partySize: number;
     priceLabel: string;
     policyDisclosureVersion: string;
+    customerPhone?: string;
 }
 export interface PaymentEvent {
     id: string;
@@ -218,7 +220,7 @@ export interface Outbox {
     id: string;
     businessId: string | null;
     destination: string;
-    channel: "EMAIL" | "SMS" | "PUSH";
+    channel: "EMAIL" | "PUSH";
     kind: string;
     body: string;
     key: string;
@@ -232,7 +234,7 @@ export interface Media {
     id: string;
     businessId: string;
     ownerId: string | null;
-    proofHash: string | null;
+    capabilityHash: string | null;
     kind: "BUSINESS" | "QUOTE";
     bytes: string;
     storage?: import("../integrations/cloudinary").Asset;
@@ -256,8 +258,8 @@ export interface Refund {
     reason: string;
     state: "REQUIRED" | "SIMULATED_REFUNDED" | "PROCESSING" | "REFUNDED" | "FAILED";
     providerId?: string;
-    amountCents?:number;
-    providerStatus?:string;
+    amountCents?: number;
+    providerStatus?: string;
     createdAt: string;
     resolvedAt: string | null;
 }

@@ -11,12 +11,12 @@ async function main() {
     try {
         const job = JSON.parse(Buffer.from(encoded, "base64url").toString()) as {
             selection: unknown;
-            proof: string;
+            capability: string;
             key: string;
         };
         const service = new BookingService(new PrismaRepository(client), new MockGeocoder(), new MockPaymentAdapter("synthetic-mock-payment-signing-key-123456789"), "synthetic-confirmation-signing-key-123456789");
         try {
-            await service.checkout(job.selection, job.proof, job.key, new Date("2026-11-23T12:00:00Z"));
+            await service.checkout(job.selection, job.capability, job.key, new Date("2026-11-23T12:00:00Z"), "synthetic-browser-capability-binding");
             console.log("accepted");
         }
         catch {

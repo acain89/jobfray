@@ -231,3 +231,6 @@ model JfDirectoryBusiness {
  @@index([searchText(ops:raw("gin_trgm_ops"))],type:Gin,map:"JfDirectory_text_idx")
  @@index([name,id],map:"JfDirectory_name_id_idx")
 }
+
+// Phase 6A: document.customerPhone on new checkout snapshots is bound to immutable request contact.
+// New token/notification insert guards are in 20261124000400_browser_request_capabilities.

@@ -8,7 +8,7 @@ source += String.raw`
  test("PostgreSQL competing cross-mode checkouts and concurrent event replay", async()=>{
   const f=await fixture(3);
   const started=performance.now();const latency=[];
-  const results=await Promise.allSettled(Array.from({length:20},async(_,i)=>{const at=performance.now();try{return await f.service.checkout({...input(f,i%3===0?"RENTAL":i%3===1?"SERVICE":"RESERVATION"),quantity:1,partySize:1,endLocal:"2026-11-24T11:00"},f.proof,"stress-"+i,now);}finally{latency.push(performance.now()-at);}}));
+  const results=await Promise.allSettled(Array.from({length:20},async(_,i)=>{const at=performance.now();try{return await f.service.checkout({...input(f,i%3===0?"RENTAL":i%3===1?"SERVICE":"RESERVATION"),quantity:1,partySize:1,endLocal:"2026-11-24T11:00"},f.capability,"stress-"+i,now,"synthetic-browser-capability-binding");}finally{latency.push(performance.now()-at);}}));
   const success=results.filter(r=>r.status==="fulfilled");assert.ok(success.length>0&&success.length<=3);
   const allocations=await f.repo.transaction([],tx=>tx.find("allocations",{businessId:f.business.id}));assert.ok(allocations.reduce((sum,a)=>sum+a.units,0)<=3);
   const request=success[0].value;const intent=await f.service.intent(request.requestId,request.confirmationToken,now),event=f.payments.event(intent);
@@ -17,7 +17,7 @@ source += String.raw`
   latency.sort((a,b)=>a-b);console.log(JSON.stringify({measurement:"20 competing PostgreSQL checkouts, capacity3",durationMs:performance.now()-started,retries:f.repo.retries,successful:success.length,rejected:20-success.length,p50Ms:latency[10],p95Ms:latency[18],errors:results.filter(r=>r.status==="rejected").map(r=>String(r.reason.message).slice(0,120))}));
  });
  test("PostgreSQL relational isolation, checks, immutable triggers and rollback",async()=>{
-  const f=await fixture();const r=await f.service.checkout(input(f),f.proof,"sql-guards",now);await paid(f,r);
+  const f=await fixture();const r=await f.service.checkout(input(f),f.capability,"sql-guards",now,"synthetic-browser-capability-binding");await paid(f,r);
   const {runSql}=await import("../scripts/phase4-postgres-support");const schema=f.repo.schema;
   const sql=q=>runSql('SET search_path TO "'+schema+'";'+q);
   assert.throws(()=>sql('UPDATE "JfCheckoutSnapshot" SET "platformFeeCents"=500;'),/Immutable/);
@@ -35,7 +35,7 @@ source += String.raw`
 test("independent Node processes compete for final PostgreSQL capacity",async()=>{
  const f=await fixture(1);const {spawn}=await import("node:child_process");
  const outputs=await Promise.all(Array.from({length:4},(_,i)=>new Promise((resolve,reject)=>{
-  const job=Buffer.from(JSON.stringify({selection:input(f),proof:f.proof,key:"process-"+i})).toString("base64url");
+  const job=Buffer.from(JSON.stringify({selection:input(f),capability:f.capability,key:"process-"+i})).toString("base64url");
   const child=spawn(process.execPath,["--import","tsx","scripts/phase4-process-worker.ts",f.repo.schema,job],{env:process.env,stdio:["ignore","pipe","pipe"]});
   let output="",errors="";child.stdout.on("data",s=>output+=s);child.stderr.on("data",s=>errors+=s);child.on("exit",code=>code===0?resolve(output.trim()):reject(new Error(errors)));child.on("error",reject);
  })));
@@ -58,19 +58,19 @@ test("24 independent PostgreSQL tenants process checkouts concurrently without a
  const f=await fixture();const accountId=(await workspace(f.repo,f.owner.token,now)).account.id;
  const owner=await f.repo.transaction([],tx=>tx.get("accounts",accountId));
  const storedBusiness=await f.repo.transaction([],tx=>tx.get("businesses",f.business.id));
- const jobs=[];
+ const jobs=[];const caps=new Map();
  for(let i=0;i<24;i++){
   const account={...owner,id:randomUUID(),email:"load"+i+"@example.test"},business={...storedBusiness,id:randomUUID(),ownerId:account.id,slug:"load-tenant-"+i},resource={...f.resource,id:randomUUID(),businessId:business.id},offering={...f.offering,id:randomUUID(),businessId:business.id,resourceId:resource.id};
-  await f.repo.transaction([],async tx=>{await tx.put("accounts",account);await tx.put("businesses",business);await tx.put("resources",resource);await tx.put("offerings",offering);});jobs.push({...input(f),businessId:business.id,offeringId:offering.id});
+  await f.repo.transaction([],async tx=>{await tx.put("accounts",account);await tx.put("businesses",business);await tx.put("resources",resource);await tx.put("offerings",offering);});jobs.push({...input(f),businessId:business.id,offeringId:offering.id});caps.set(business.id,(await createRequestCapability(f.repo,business.id,"synthetic-browser-capability-binding",now)).capability);
  }
  const began=performance.now();const latency=[];
- await Promise.all(jobs.map(async(s,i)=>{const at=performance.now();await f.service.checkout(s,f.proof,"independent-"+i,now);latency.push(performance.now()-at);}));
+ await Promise.all(jobs.map(async(s,i)=>{const at=performance.now();await f.service.checkout(s,caps.get(s.businessId),"independent-"+i,now,"synthetic-browser-capability-binding");latency.push(performance.now()-at);}));
  const elapsed=performance.now()-began;latency.sort((a,b)=>a-b);console.log(JSON.stringify({measurement:"24 independent tenant checkouts",elapsedMs:elapsed,retries:f.repo.retries,requestsPerSecond:24/elapsed*1000,p50Ms:latency[12],p95Ms:latency[22],errors:0}));
 });
 `;
 source += String.raw`
 test("bounded workspace query over 100000 synthetic historical requests",async()=>{
- const f=await fixture();const r=await f.service.checkout(input(f),f.proof,"history-template",now);await paid(f,r);
+ const f=await fixture();const r=await f.service.checkout(input(f),f.capability,"history-template",now,"synthetic-browser-capability-binding");await paid(f,r);
  const {runSql}=await import("../scripts/phase4-postgres-support");
  runSql('SET search_path TO "'+f.repo.schema+'"; INSERT INTO "JfRequest" (id,"businessId","offeringId",mode,status,"idempotencyKey","payloadHash",document) SELECT \'bulk-\'||lpad(i::text,6,\'0\'),"businessId","offeringId",mode,status,\'bulk-\'||i,"payloadHash",document||jsonb_build_object(\'id\',\'bulk-\'||lpad(i::text,6,\'0\'),\'idempotencyKey\',\'bulk-\'||i,\'confirmationHash\',md5(i::text),\'reference\',\'BULK-\'||i) FROM "JfRequest" CROSS JOIN generate_series(1,100000) i WHERE id=\''+r.requestId+'\'; ANALYZE "JfRequest";');
  const began=performance.now();const w=await workspace(f.repo,f.owner.token,now);const elapsed=performance.now()-began;
@@ -81,7 +81,7 @@ test("bounded workspace query over 100000 synthetic historical requests",async()
 `;
 source += String.raw`
 test("killed confirmation process rolls back its payment event and replay confirms exactly once",async()=>{
- const f=await fixture(1),r=await f.service.checkout(input(f),f.proof,"killed-confirmation",now),intent=await f.service.intent(r.requestId,r.confirmationToken,now),event=f.payments.event(intent);
+ const f=await fixture(1),r=await f.service.checkout(input(f),f.capability,"killed-confirmation",now,"synthetic-browser-capability-binding"),intent=await f.service.intent(r.requestId,r.confirmationToken,now),event=f.payments.event(intent);
  const {spawn}=await import("node:child_process");
  await new Promise((resolve,reject)=>{
   const child=spawn(process.execPath,["--import","tsx","scripts/phase4-interruption-worker.ts",f.repo.schema,Buffer.from(JSON.stringify(event)).toString("base64url")],{env:process.env,stdio:["ignore","pipe","pipe"]});

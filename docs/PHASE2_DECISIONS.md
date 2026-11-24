@@ -1,6 +1,6 @@
 # Approved product decisions after Phase 2
 
-The owner's Phase 3 instructions supersede the earlier unresolved-decision list.
+The owner's Phase 6A customer-contact policy supersedes previous ownership-verification and delivery requirements; the other approved Phase 3 policies remain in effect.
 Fee amounts remain locked; no additional owner approval is needed for ordinary
 implementation choices described here.
 
@@ -20,7 +20,7 @@ implementation choices described here.
   uses automated readiness checks; ordinary publication needs no administrator.
 - Business suspension/unpublication excludes discovery and new requests without
   erasing confirmed obligations, confirmation facts or financial history.
-- Customers provide verified phone, name, necessary address and optional notes.
+- Customers enter a contact phone once, confirm its displayed normalized value before payment, and provide name, necessary address and optional notes. Phone confirmation is not ownership verification or authentication.
   No customer accounts. Business contact details appear after paid confirmation.
   Protected capability links, screenshot-friendly receipts and calendar downloads.
 - Mandatory verified-owner email notifications; optional provider-independent PWA
@@ -60,7 +60,7 @@ minimums, not guaranteed final prices. Shared pools do not require employee reco
 
 ## Quote
 
-Name, verified phone, address only where applicable, a required description up to
+Name, customer-confirmed contact phone, address only where applicable, a required description up to
 200 characters, and 1-3 required/optional job photos with 5 MB per image limit.
 Fixed $3 JF fee. Pending checkout drafts are private; verified payment delivers the
 request to the dashboard and queues business/customer notifications. Quotes never
@@ -93,7 +93,7 @@ reviewed and make no unconditional legal-immunity claim.
 
 - Separately authorize an isolated PostgreSQL test database; execute/review additive
   DDL, CHECKs, immutable triggers, SQL privileges, transactional races and recovery.
-- Separately authorize real payment, email/SMS, geocoding, object storage and optional
+- Separately authorize real payment, business email, geocoding, object storage and optional
   push adapters. Confirm charge/refund lifecycle interoperability and event recovery.
 - Configure background notification/reconciliation/retention workers and production
   support, backup, key rotation, deletion and audit procedures.
@@ -115,8 +115,14 @@ versioned confirmation-key procedures. Approved product policies and fees are un
 
 ## Phase 5 implementation alignment
 
-Approved product and fee policies above are unchanged. Production adapters are prepared for Stripe platform-fee Checkout, Resend email, new JobFray Twilio Verify plus confirmation messaging, permanently licensed Mapbox geocoding, authenticated Cloudinary media and optional VAPID push. No account was provisioned or connected; Stripe explicitly remains disconnected. Mock transport is verification evidence only.
+Approved product and fee policies above are unchanged. Production adapters are prepared for Stripe platform-fee Checkout, Resend email, permanently licensed Mapbox geocoding, authenticated Cloudinary media and optional VAPID push. No account was provisioned or connected; Stripe explicitly remains disconnected. Mock transport is verification evidence only.
 
-Operational technical defaults: provider requests time out after eight seconds; quote verification is browser/request scoped with independent trusted-edge/destination limits; image upload failures have durable orphan jobs; unreferenced business images become eligible for cleanup at 24 hours; optional push is limited to twenty active devices per business. These are technical safety/retention defaults, not new rental, reservation, fee or refund policies. Account/provider/privacy review is required before release.
+Operational technical defaults: provider requests time out after eight seconds; customer draft access uses browser-bound capabilities with independent trusted-edge limits; image upload failures have durable orphan jobs; unreferenced business images become eligible for cleanup at 24 hours; optional push is limited to twenty active devices per business. These are technical safety/retention defaults, not new rental, reservation, fee or refund policies. Account/provider/privacy review is required before release.
 
 The complete external requirements and release gates are in PROVIDER_CONFIGURATION.md, PRODUCTION_SETUP.md and RELEASE_CHECKLIST.md. Independent-business nonperformance still does not automatically refund a JF fee. Existing confirmed obligations and historical financial snapshots remain preserved.
+
+## Phase 6A customer contact and access
+
+No ownership challenges, codes, customer accounts, email addresses or automatic customer delivery are required. Across all four modes, Pay Now opens the accessible phone-confirmation modal. Yes proceeds; No closes and focuses the original phone field; dismissal never starts checkout; changes invalidate the review/confirmation without erasing entered data. Read-only fee review precedes any hold. The normalized affirmed phone is an immutable checkout fact.
+
+Random browser/business-scoped capabilities, HttpOnly browser binding, CSRF and rate limits replace ownership-proof authorization. Idempotency replay cannot cross browsers; quote photos cannot cross capabilities or be attached to a second request. Protected confirmation links remain independent of phone identity and must be saved/copied by customers. Mandatory business email and optional owner device push remain unchanged.

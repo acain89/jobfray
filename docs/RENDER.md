@@ -37,7 +37,7 @@ this foundation. Do not retire existing jobs until their ownership is verified.
 | `PORT`                    | Render-managed; do not replace with a hard-coded port                                                                                                                                                                                                                                            |
 | `DATABASE_URL`            | NOT used by the serving foundation. Only required for explicit Prisma CLI validation/generation; use isolated local credentials for those checks. Preserve any existing production value/settings without copying or overwriting them.                                                           |
 
-No Stripe, Twilio, Cloudinary, Mapbox, JWT or admin-password variables are needed
+No Stripe, Cloudinary, Mapbox, JWT or admin-password variables are needed
 by the new serving application. Do not delete existing values, shared environment
 groups, keys or provider accounts: verify ownership, legacy obligations and
 retention first. No new payment/auth/provider secret is generated in this task.

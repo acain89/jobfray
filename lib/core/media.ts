@@ -1,9 +1,10 @@
+import { requestCapability } from "./request-capability";
 import type { MediaStorage } from "../integrations/cloudinary";
 import sharp from "sharp";
 import { randomUUID } from "node:crypto";
 import type { Repository } from "./repository";
 import { AppError } from "./validation";
-import { contactProof, hash, ownerScope } from "./security";
+import { hash, ownerScope, rateLimit } from "./security";
 let decoding = 0;
 export async function uploadImage(repo: Repository, input: {
     businessId: string;
@@ -11,8 +12,8 @@ export async function uploadImage(repo: Repository, input: {
     bytes: Buffer;
     contentType: string;
     session?: string | undefined;
-    proof?: string | undefined;
-    phone?: string | undefined;
+    capability?: string | undefined;
+    browser?: string | undefined;
 }, now: Date, storage?: MediaStorage) {
     if (input.bytes.length > 5 * 1024 * 1024 || input.bytes.length < 12)
         throw new AppError("Images must be 5 MB or smaller", 413);
@@ -25,13 +26,13 @@ export async function uploadImage(repo: Repository, input: {
         if (input.kind === "BUSINESS")
             await ownerScope(tx, input.session, input.businessId, now);
         else {
-            const verified = await contactProof(tx, input.proof ?? "", input.phone ?? "", now);
-            if (storage && (verified.usedAt || !verified.context.startsWith(input.businessId + ":")))
-                throw new AppError("Upload verification belongs to another request", 403);
+            await requestCapability(tx, input.capability ?? "", input.businessId, input.browser ?? "", now);
             if ((await tx.get("businesses", input.businessId))?.status !== "PUBLISHED")
                 throw new AppError("Business not available", 404);
         }
     });
+    if (input.kind === "QUOTE")
+        await rateLimit(repo, "quote-upload-browser:" + hash(input.browser ?? ""), 12, now);
     if (decoding >= 2)
         throw new AppError("Image processing is busy. Please retry.", 429);
     decoding++;
@@ -50,26 +51,30 @@ export async function uploadImage(repo: Repository, input: {
         if (input.kind === "BUSINESS")
             ownerId = (await ownerScope(tx, input.session, input.businessId, now)).accountId;
         else {
-            const verified = await contactProof(tx, input.proof ?? "", input.phone ?? "", now);
-            if (storage && (verified.usedAt || !verified.context.startsWith(input.businessId + ":")))
-                throw new AppError("Upload verification belongs to another request", 403);
+            await requestCapability(tx, input.capability ?? "", input.businessId, input.browser ?? "", now);
             const business = await tx.get("businesses", input.businessId);
             if (business?.status !== "PUBLISHED")
                 throw new AppError("Business not available", 404);
         }
-        const current = await tx.count("media", { businessId: input.businessId, ...(input.kind === "BUSINESS" ? { ownerId } : { proofHash: hash(input.proof ?? "") }) });
+        const current = await tx.count("media", { businessId: input.businessId, ...(input.kind === "BUSINESS" ? { ownerId } : { capabilityHash: hash(input.capability ?? "") }) });
         if (current >= (input.kind === "BUSINESS" ? 40 : 6))
             throw new AppError("Upload limit reached", 429);
         const id = randomUUID();
-        await tx.put("media", { id, businessId: input.businessId, ownerId, proofHash: input.kind === "QUOTE" ? hash(input.proof ?? "") : null, kind: input.kind, bytes: bytes.toString("base64"), contentType: "image/webp", createdAt: now.toISOString(), expiresAt: input.kind === "QUOTE" ? new Date(now.getTime() + 86400000).toISOString() : null });
+        await tx.put("media", { id, businessId: input.businessId, ownerId, capabilityHash: input.kind === "QUOTE" ? hash(input.capability ?? "") : null, kind: input.kind, bytes: bytes.toString("base64"), contentType: "image/webp", createdAt: now.toISOString(), expiresAt: input.kind === "QUOTE" ? new Date(now.getTime() + 86400000).toISOString() : null });
         if (storage)
             await tx.put("operations", { id: "media-orphan:" + id, businessId: input.businessId, kind: "MEDIA_DELETE", state: "PENDING", availableAt: new Date(now.getTime() + 3600000).toISOString(), attempts: 0, leaseUntil: null, payload: { mediaId: id, asset: { provider: "CLOUDINARY", publicId: "jobfray/" + input.businessId + "/" + id, version: 0 } } });
         return { id };
     });
     if (storage) {
         const asset = await storage.put(input.businessId, result.id, bytes);
-        await repo.transaction(["tenant:" + input.businessId], async (tx) => { const image = await tx.get("media", result.id); if (!image)
-            throw new AppError("Upload reservation expired", 409); await tx.put("media", { ...image, storage: asset, bytes: "" }); const job = (await tx.get("operations", "media-orphan:" + result.id))!; await tx.put("operations", { ...job, state: "DONE" }); });
+        await repo.transaction(["tenant:" + input.businessId], async (tx) => {
+            const image = await tx.get("media", result.id);
+            if (!image)
+                throw new AppError("Upload reservation expired", 409);
+            await tx.put("media", { ...image, storage: asset, bytes: "" });
+            const job = (await tx.get("operations", "media-orphan:" + result.id))!;
+            await tx.put("operations", { ...job, state: "DONE" });
+        });
     }
     return result;
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import * as webpush from "web-push";
-import { request, object, form, networkTransport, type Transport } from "./http";
+import { networkTransport, type Transport } from "./http";
 import type { Repository } from "../core/repository";
 import type { NotificationTransport } from "../core/providers";
 import type { Outbox } from "../core/model";
@@ -9,10 +9,6 @@ import { hash } from "../core/security";
 import { pushEndpoint } from "../core/push";
 export class ProductionNotifications implements NotificationTransport {
     constructor(private repo: Repository, private email: NotificationTransport, private config: {
-        account: string;
-        key: string;
-        secret: string;
-        messagingService: string;
         origin: string;
         vapidPublic?: string;
         vapidPrivate?: string;
@@ -23,25 +19,25 @@ export class ProductionNotifications implements NotificationTransport {
             await this.push(item);
             return;
         }
+        if (item.channel !== "EMAIL")
+            throw new AppError("Unsupported notification channel", 400);
         const id = "notification:" + hash(item.key), now = new Date();
-        const state = await this.repo.transaction([id], async (tx) => { const previous = await tx.get("operations", id); if (previous?.state === "DONE")
-            return "DONE"; if (previous && (item.channel === "SMS" || Date.parse(String(previous.payload.startedAt)) + 86400000 < Date.now())) {
-            await tx.put("operations", { ...previous, state: "FAILED" });
-            return "UNCERTAIN";
-        } await tx.put("operations", { id, businessId: item.businessId, kind: "NOTIFICATION", state: "RUNNING", availableAt: now.toISOString(), attempts: (previous?.attempts ?? 0) + 1, leaseUntil: null, payload: { startedAt: previous?.payload.startedAt ?? now.toISOString(), channel: item.channel, key: item.key } }); return "SEND"; });
+        const state = await this.repo.transaction([id], async (tx) => {
+            const previous = await tx.get("operations", id);
+            if (previous?.state === "DONE")
+                return "DONE";
+            if (previous && (Date.parse(String(previous.payload.startedAt)) + 86400000 < Date.now())) {
+                await tx.put("operations", { ...previous, state: "FAILED" });
+                return "UNCERTAIN";
+            }
+            await tx.put("operations", { id, businessId: item.businessId, kind: "NOTIFICATION", state: "RUNNING", availableAt: now.toISOString(), attempts: (previous?.attempts ?? 0) + 1, leaseUntil: null, payload: { startedAt: previous?.payload.startedAt ?? now.toISOString(), channel: item.channel, key: item.key } });
+            return "SEND";
+        });
         if (state === "DONE")
             return;
         if (state === "UNCERTAIN")
             throw new AppError("Uncertain notification requires operator reconciliation", 503);
-        if (item.channel === "EMAIL")
-            await this.email.send(item);
-        else {
-            if (item.kind !== "CUSTOMER_CONFIRMATION" || !/^\+\d{8,15}$/.test(item.destination))
-                throw new AppError("Unsupported SMS delivery");
-            const result = object(await request(this.transport, "https://api.twilio.com/2010-04-01/Accounts/" + this.config.account + "/Messages.json", { method: "POST", headers: { Authorization: "Basic " + Buffer.from(this.config.key + ":" + this.config.secret).toString("base64"), "Content-Type": "application/x-www-form-urlencoded" }, body: form({ To: item.destination, MessagingServiceSid: this.config.messagingService, Body: "JobFray confirmation: " + this.config.origin + item.body }) }));
-            if (result.account_sid !== this.config.account || typeof result.sid !== "string")
-                throw new AppError("SMS identity mismatch", 502);
-        }
+        await this.email.send(item);
         await this.repo.transaction([id], async (tx) => { const row = (await tx.get("operations", id))!; await tx.put("operations", { ...row, state: "DONE" }); });
     }
     private async push(item: Outbox) {
@@ -58,9 +54,15 @@ export class ProductionNotifications implements NotificationTransport {
                 continue;
             }
             const key = "push:" + hash(item.key + device.id), leaseToken = randomUUID();
-            const claimed = await this.repo.transaction([key], async (tx) => { const old = await tx.get("operations", key); if (old?.state === "DONE")
-                return false; if (old?.leaseUntil && Date.parse(old.leaseUntil) > Date.now())
-                throw new AppError("Push delivery already in progress", 503); await tx.put("operations", { id: key, businessId: item.businessId, kind: "PUSH", state: "RUNNING", availableAt: new Date().toISOString(), attempts: (old?.attempts ?? 0) + 1, leaseToken, leaseUntil: new Date(Date.now() + 60000).toISOString(), payload: {} }); return true; });
+            const claimed = await this.repo.transaction([key], async (tx) => {
+                const old = await tx.get("operations", key);
+                if (old?.state === "DONE")
+                    return false;
+                if (old?.leaseUntil && Date.parse(old.leaseUntil) > Date.now())
+                    throw new AppError("Push delivery already in progress", 503);
+                await tx.put("operations", { id: key, businessId: item.businessId, kind: "PUSH", state: "RUNNING", availableAt: new Date().toISOString(), attempts: (old?.attempts ?? 0) + 1, leaseToken, leaseUntil: new Date(Date.now() + 60000).toISOString(), payload: {} });
+                return true;
+            });
             if (!claimed)
                 continue;
             const details = await webpush.generateRequestDetails({ endpoint: pushEndpoint(device.endpoint), keys: device.keys }, JSON.stringify({ deliveryKey: hash(item.key), title: "New JobFray request", body: "Open your dashboard for details.", url: "/dashboard" }), { TTL: 60, vapidDetails: { subject: vapidSubject, publicKey: vapidPublic, privateKey: vapidPrivate } });
@@ -73,8 +75,11 @@ export class ProductionNotifications implements NotificationTransport {
                 }
                 if (!response.ok)
                     throw new AppError("Push temporarily unavailable", 503);
-                await this.repo.transaction([key], async (tx) => { const current = await tx.get("operations", key); if (current?.leaseToken === leaseToken)
-                    await tx.put("operations", { ...current, state: "DONE", leaseUntil: null }); });
+                await this.repo.transaction([key], async (tx) => {
+                    const current = await tx.get("operations", key);
+                    if (current?.leaseToken === leaseToken)
+                        await tx.put("operations", { ...current, state: "DONE", leaseUntil: null });
+                });
             }
             finally {
                 clearTimeout(timer);

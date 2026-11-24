@@ -34,19 +34,24 @@ try{
   const publicHtml=await (await call("/sites/"+business.slug)).text();assert.ok(publicHtml.includes("Good things happen locally."));assert.ok(!publicHtml.includes(profile.address));assert.ok(!publicHtml.includes(profile.phone));
   const find=await (await call("/find?zip=78701&mode=SERVICE")).text();assert.ok(find.includes(profile.slug));assert.ok(!find.includes(profile.address));
   const qr=await call("/api/qr");assert.equal(qr.status,200);assert.ok((await qr.text()).includes("<svg"));
-  const phone="+15125550124",challenge=await post("contact-start",{phone});inbox=await get("sandbox-inbox");const code=inbox.items.find(v=>v.kind==="CUSTOMER_CODE"&&v.body.startsWith(challenge.challengeId+":")).body.split(":")[1];
-  const proof=(await post("contact-verify",{challengeId:challenge.challengeId,code})).proof;
+  await post("contact-start",{phone:"+15125550124"},404);await post("contact-verify",{challengeId:"retired",code:"000000"},404);
+  const phone="+15125550124",capability=(await post("request-capability",{businessId:business.id})).capability;
   const png=await sharp({create:{width:32,height:32,channels:3,background:"#77a08b"}}).png().toBuffer();
-  const upload=await call("/api/media",{method:"POST",headers:{Origin:origin,"Content-Type":"application/json","x-csrf-token":csrf},body:JSON.stringify({businessId:business.id,kind:"QUOTE",bytes:png.toString("base64"),contentType:"image/png",proof,phone})});assert.equal(upload.status,200);const photo=(await upload.json()).id;
+  const upload=await call("/api/media",{method:"POST",headers:{Origin:origin,"Content-Type":"application/json","x-csrf-token":csrf},body:JSON.stringify({businessId:business.id,kind:"QUOTE",bytes:png.toString("base64"),contentType:"image/png",capability,phone})});assert.equal(upload.status,200);const photo=(await upload.json()).id;
   const dateParts=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"America/Chicago",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).map(p=>[p.type,p.value]));const date=new Date(Date.parse(`${dateParts.year}-${dateParts.month}-${dateParts.day}T12:00Z`)+86400000).toISOString().slice(0,10);
   const receipts=[];let lastToken="";
   for(const mode of profile.modes){const selection={businessId:business.id,offeringId:item.id,mode,fulfillment:"STOREFRONT",quantity:mode==="RENTAL"?2:1,partySize:mode==="RESERVATION"?3:1,startLocal:mode==="QUOTE"?"":date+"T10:00",endLocal:mode==="QUOTE"?"":date+(mode==="RENTAL"?"T12:00":"T11:00"),ambiguity:"REJECT",contact:{name:"Synthetic customer",phone,address:"",notes:mode==="QUOTE"?"A short synthetic job description":""},photos:mode==="QUOTE"?[photo]:[]};
-    const checkout=await post("checkout",{selection,proof,idempotencyKey:"smoke-"+id+mode}),again=await post("checkout",{selection,proof,idempotencyKey:"smoke-"+id+mode});assert.equal(checkout.requestId,again.requestId);
+    const review=(await post("review",{selection})).snapshot;
+    await post("checkout",{selection,review,capability,idempotencyKey:"missing-phone-"+id+mode},400);
+    await post("checkout",{selection,review,capability,confirmedPhone:"+15125550199",idempotencyKey:"wrong-phone-"+id+mode},400);
+    const browserCookie=jar.get("jf_request_browser");jar.set("jf_request_browser","synthetic-other-browser-binding");await post("checkout",{selection,review,capability,confirmedPhone:phone,idempotencyKey:"stolen-cap-"+id+mode},403);jar.set("jf_request_browser",browserCookie);
+    await post("checkout",{selection,review:{...review,platformFeeCents:1},capability,confirmedPhone:phone,idempotencyKey:"tamper-fee-"+id+mode},409);
+    const checkout=await post("checkout",{selection,review,capability,confirmedPhone:phone,idempotencyKey:"smoke-"+id+mode}),again=await post("checkout",{selection,review,capability,confirmedPhone:phone,idempotencyKey:"smoke-"+id+mode});assert.equal(checkout.requestId,again.requestId);assert.equal(checkout.snapshot.customerPhone,phone);
     assert.equal(checkout.snapshot.platformFeeCents,mode==="SERVICE"?400:300);await post("mock-pay",{requestId:checkout.requestId});
     lastToken=checkout.confirmationToken;const receipt=await get("confirmation");assert.ok(receipt.request);assert.equal(receipt.request.businessPhone,profile.phone);receipts.push(receipt);
     if(mode!=="QUOTE"){const calendar=await call("/api/calendar");assert.equal(calendar.status,200);assert.ok((await calendar.text()).includes("BEGIN:VCALENDAR"));}
   }
-  const w=await get("workspace");assert.equal(w.requests.length,4);await post("sandbox-reconcile",{});const finalInbox=await get("sandbox-inbox");assert.ok(finalInbox.items.some(v=>v.kind==="CUSTOMER_CONFIRMATION"));
+  const w=await get("workspace");assert.equal(w.requests.length,4);await post("sandbox-reconcile",{});const finalInbox=await get("sandbox-inbox");assert.ok(finalInbox.items.some(v=>v.kind==="CONFIRMED_REQUEST"&&v.channel==="EMAIL"));assert.ok(finalInbox.items.every(v=>v.channel==="EMAIL"||v.channel==="PUSH"));
   await mkdir(resolve("artifacts"),{recursive:true});
   await writeFile(resolve("artifacts","phase3-browser-fixture.json"),JSON.stringify({email,password,slug:business.slug,businessId:business.id,offeringId:item.id,confirmationLink:"/confirmation#access="+lastToken},null,2));
   console.log("PASS: real HTTP registration, verification, login, CSRF rejection, onboarding, catalog, publication, directory privacy, QR, upload and all four idempotent mock payment/confirmation/calendar workflows. No live provider or database.");

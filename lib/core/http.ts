@@ -5,6 +5,7 @@ import { AppError } from "./validation";
 import { secret } from "./security";
 import { localSandboxAllowed } from "./configuration";
 const prefix = localSandboxAllowed() ? "" : "__Host-";
+export const REQUEST_BROWSER = prefix + "jf_request_browser";
 export const COOKIE = prefix + "jf_session", CSRF = prefix + "jf_csrf", CONFIRMATION = prefix + "jf_confirmation";
 export const secure = () => !localSandboxAllowed();
 export function response(value: unknown, status = 200) { return NextResponse.json(value, { status, headers: { "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" } }); }
@@ -48,8 +49,9 @@ export function csrf(request: Request) {
 }
 export function csrfResponse(value: unknown, existing?: string) { const token = existing ?? secret(), r = response({ ...value as object, csrf: token }); r.cookies.set(CSRF, token, { httpOnly: true, secure: secure(), sameSite: "strict", path: "/", maxAge: 7 * 86400 }); return r; }
 export function failure(error: unknown) {
-    if (error instanceof AppError || error instanceof InputError) return response({error:error.message},error instanceof AppError ? error.status : 400);
-    const reference=randomUUID();
-    console.error(JSON.stringify({event:"request_failed",reference,kind:"internal"}));
-    return response({error:"The request could not be completed. Please retry.",reference},500);
+    if (error instanceof AppError || error instanceof InputError)
+        return response({ error: error.message }, error instanceof AppError ? error.status : 400);
+    const reference = randomUUID();
+    console.error(JSON.stringify({ event: "request_failed", reference, kind: "internal" }));
+    return response({ error: "The request could not be completed. Please retry.", reference }, 500);
 }

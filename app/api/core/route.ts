@@ -1,11 +1,11 @@
+import { createRequestCapability } from "@/lib/core/request-capability";
 import { trustedPrincipal } from "@/lib/core/edge";
-import { contactBinding } from "@/lib/core/phone-verification";
 import { subscribePush, unsubscribePush } from "@/lib/core/push";
 import { cookies } from "next/headers";
 import { runtime, applicationEnabled, requireSandbox, requireCheckout } from "@/lib/core/runtime";
-import { body, response, failure, csrf, csrfResponse, COOKIE, CONFIRMATION, secure, cookieValue } from "@/lib/core/http";
+import { body, response, failure, csrf, csrfResponse, COOKIE, CONFIRMATION, REQUEST_BROWSER, secure, cookieValue } from "@/lib/core/http";
 import { AppError, string, whole, phone } from "@/lib/core/validation";
-import { register, login, recover, consumeAccountToken, startContact, verifyContact, session, ownerScope, rateLimit, hash } from "@/lib/core/security";
+import { register, login, recover, consumeAccountToken, session, ownerScope, rateLimit, hash, secret } from "@/lib/core/security";
 import { saveProfile, workspace, saveOffering, saveResource, autosave, publish, unpublish, suspend, readiness, ownerBusiness } from "@/lib/core/business";
 import { deliverNotifications } from "@/lib/core/booking";
 import { MockPaymentAdapter } from "@/lib/core/providers";
@@ -29,7 +29,10 @@ export async function GET(request: Request) {
                     currentCsrf = current.session.csrf;
                 }
                 catch { }
-            return csrfResponse({ available: true, signedIn, sandbox: app.sandbox }, currentCsrf);
+            const r = csrfResponse({ available: true, signedIn, sandbox: app.sandbox }, currentCsrf);
+            if (!jar.get(REQUEST_BROWSER))
+                r.cookies.set(REQUEST_BROWSER, secret(), { httpOnly: true, secure: secure(), sameSite: "strict", path: "/", maxAge: 86400 });
+            return r;
         }
         const app = await runtime();
         if (app.sandbox)
@@ -52,7 +55,7 @@ export async function GET(request: Request) {
         }
         if (op === "sandbox-inbox") {
             requireSandbox(request);
-            return response({ items: await app.repo.transaction(["sandbox-inbox"], tx => tx.find("outbox", {})) });
+            return response({ items: await app.repo.transaction(["sandbox-inbox"], tx => tx.find("outbox", {}, { oneOf: { field: "channel", values: ["EMAIL", "PUSH"] } })) });
         }
         return response({ error: "Not found" }, 404);
     }
@@ -68,7 +71,6 @@ export async function POST(request: Request) {
             requireSandbox(request);
         const now = new Date(), token = cookieValue(request, COOKIE);
         const principal = app.sandbox ? "local-sandbox" : trustedPrincipal(request);
-        const contactPrincipal=hash(token??cookieValue(request,"__Host-jf_csrf")??cookieValue(request,"jf_csrf")??"missing");
         if (!app.sandbox)
             await rateLimit(app.repo, "edge:" + principal + ":" + op, 60, now, 1);
         if (op === "push-subscribe")
@@ -137,18 +139,27 @@ export async function POST(request: Request) {
         }
         if (op === "release")
             return response(await app.booking.release(token, string(v.businessId, 80), string(v.requestId, 80), now));
-        if (op === "contact-start")
-            return response(app.sandbox ? await startContact(app.repo, phone(v.phone), now) : await (async () => { requireCheckout(); if (!app.phoneVerification)
-                throw new AppError("Phone verification unavailable", 503); await rateLimit(app.repo,"verify-edge:"+principal,10,now);return app.phoneVerification.start(phone(v.phone), contactBinding(string(v.businessId, 80), string(v.offeringId, 80), string(v.mode, 20), string(v.idempotencyKey, 100)), contactPrincipal, now, string(v.businessId, 80)); })());
-        if (op === "contact-verify")
-            return response(app.sandbox ? await verifyContact(app.repo, string(v.challengeId, 80), string(v.code, 6), now) : await (async () => { requireCheckout(); if (!app.phoneVerification)
-                throw new AppError("Phone verification unavailable", 503); return app.phoneVerification.verify(string(v.challengeId, 80), string(v.code, 6), contactPrincipal, now); })());
+        if (op === "request-capability") {
+            const browser = cookieValue(request, REQUEST_BROWSER) ?? secret(), r = response(await createRequestCapability(app.repo, string(v.businessId, 80), browser, now));
+            r.cookies.set(REQUEST_BROWSER, browser, { httpOnly: true, secure: secure(), sameSite: "strict", path: "/", maxAge: 86400 });
+            return r;
+        }
+        if (op === "review")
+            return response({ snapshot: await app.booking.preview(v.selection, now) });
         if (op === "checkout") {
             if (app.sandbox)
                 requireSandbox(request);
             else
                 requireCheckout();
-            const result = await app.booking.checkout(v.selection, string(v.proof, 100), string(v.idempotencyKey, 100), now), r = response(result);
+            if(!v.review||typeof v.review!=="object"||Array.isArray(v.review))throw new AppError("Review the current price before checkout");
+            const selected = v.selection as {
+                contact?: {
+                    phone?: unknown;
+                };
+            };
+            if (phone(v.confirmedPhone) !== phone(selected?.contact?.phone))
+                throw new AppError("Confirm the current phone number");
+            const result = await app.booking.checkout(v.selection, string(v.capability, 100), string(v.idempotencyKey, 100), now, cookieValue(request, REQUEST_BROWSER) ?? "",v.review), r = response(result);
             r.cookies.set(CONFIRMATION, result.confirmationToken, { httpOnly: true, secure: secure(), sameSite: "strict", path: "/", maxAge: 180 * 86400 });
             return r;
         }
