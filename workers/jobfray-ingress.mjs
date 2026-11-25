@@ -21,9 +21,10 @@ export async function operatorRequest(request, env) {
     return ['GET', 'HEAD'].includes(request.method) || request.method === 'POST' && ['/api/acceptance', '/api/worker', '/api/stripe/webhook', '/__jobfray/scheduler-check'].includes(url.pathname);
 }
 export function createWorker(originFetch = fetch) {
+    const scheduledMode = env => env.SCHEDULER_MODE === 'nonfinancial' ? 'nonfinancial' : 'read_only';
     const runScheduler = async env => {
         if (env.SCHEDULER_ENABLED !== '1' || !env.JOBFRAY_EDGE_SECRET || !env.JOBFRAY_WORKER_KEY) return { executed: false, reason: 'disabled' };
-        const request = new Request('https://jobfray.com/api/worker', { method: 'POST', redirect: 'manual', headers: { Authorization: 'Bearer ' + env.JOBFRAY_WORKER_KEY, 'x-jf-edge-secret': env.JOBFRAY_EDGE_SECRET, 'x-jf-client-ip': '192.0.2.1', 'x-forwarded-proto': 'https', 'x-jobfray-worker-mode': 'read_only' } });
+        const request = new Request('https://jobfray.com/api/worker', { method: 'POST', redirect: 'manual', headers: { Authorization: 'Bearer ' + env.JOBFRAY_WORKER_KEY, 'x-jf-edge-secret': env.JOBFRAY_EDGE_SECRET, 'x-jf-client-ip': '192.0.2.1', 'x-forwarded-proto': 'https', 'x-jobfray-worker-mode': scheduledMode(env) } });
         const response = await originFetch(request, { cache: 'no-store', cf: { cacheEverything: false, cacheTtl: -1 } });
         let result; try { result = await response.json(); } catch { result = {}; }
         const evidence = { executed: true, status: response.status, mode: result.mode || null, financialOperationsExecuted: result.financialOperationsExecuted, mutationsExecuted: result.mutationsExecuted };
@@ -31,7 +32,7 @@ export function createWorker(originFetch = fetch) {
         return evidence;
     };
     return {
-        async scheduled(_controller, env) { const result = await runScheduler(env); if (result.executed && (result.status !== 200 || result.financialOperationsExecuted !== false)) throw new Error('Scheduled read-only worker failed'); },
+        async scheduled(_controller, env) { const result = await runScheduler(env); if (result.executed && (result.status !== 200 || result.mode !== scheduledMode(env) || result.financialOperationsExecuted !== false || result.mode === 'read_only' && result.mutationsExecuted !== false)) throw new Error('Scheduled worker acceptance failed'); },
         async fetch(request, env) {
             const url = new URL(request.url), host = url.hostname.toLowerCase();
             const slug = host.endsWith('.' + BASE) ? host.slice(0, -BASE.length - 1) : '';
@@ -44,11 +45,11 @@ export function createWorker(originFetch = fetch) {
             // Default is closed. Only a later reviewed cutover may enable forwarding.
             const operator = await operatorRequest(request, env);
             // Scheduled fetches can re-enter this route without an incoming
-            // zone request context. Permit only the authenticated read-only
+            // zone request context. Permit only the configured authenticated
             // worker endpoint independently of the temporary operator channel.
             const scheduled = env.SCHEDULER_ENABLED === '1'
                 && request.method === 'POST' && url.pathname === '/api/worker'
-                && request.headers.get('x-jobfray-worker-mode') === 'read_only'
+                && request.headers.get('x-jobfray-worker-mode') === scheduledMode(env)
                 && await operatorRequest(request, { ...env, ACCEPTANCE_ENABLED: '1' });
             if (operator && url.pathname === '/__jobfray/origin-denial' && request.method === 'GET') {
                 const outcomes = [];
@@ -77,7 +78,7 @@ export function createWorker(originFetch = fetch) {
             headers.set('x-forwarded-host', host);
             headers.set('x-forwarded-proto', 'https');
             headers.set('x-forwarded-for', clientIP);
-            if (scheduled) headers.set('x-jobfray-worker-mode', 'read_only');
+            if (scheduled) headers.set('x-jobfray-worker-mode', scheduledMode(env));
             // Forward the original stream: do not parse, reserialize, decompress,
             // stringify or clone JSON. Stripe signatures bind the exact bytes.
             const outgoing = new Request(request, { headers, redirect: 'manual' });

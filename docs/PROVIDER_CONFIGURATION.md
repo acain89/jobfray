@@ -1,5 +1,7 @@
 # Provider configuration
 
+For current live nonfinancial acceptance, the corrected Cloudinary credential and the staged notification-only worker transition, see [Final provider acceptance](FINAL_PROVIDER_ACCEPTANCE.md). Historical Phase 5 statements below describe that phase's scope and do not replace the newer evidence.
+
 No provider account was connected during Phase 5. In particular, Stripe was not connected, authenticated, or called. Adapters were exercised with injected HTTP transports and synthetic signed events. Existing RF/RFL resources and credentials are prohibited.
 
 ## Required environment manifest
@@ -24,6 +26,7 @@ No provider account was connected during Phase 5. In particular, Stripe was not 
 | `JOBFRAY_CONFIRMATION_PREVIOUS_KEYS` | JSON map of preserved old signing versions; default `{}` |
 | `JOBFRAY_ADMIN_EMAILS` | Comma-separated exact verified account emails |
 | `JOBFRAY_WORKER_KEY` | Separate random secret, at least 32 characters; Bearer worker authentication |
+| `JOBFRAY_WORKER_MODE` | Default `read_only`; explicitly accepted `nonfinancial` mode handles notifications without payment/cleanup jobs |
 | `JOBFRAY_EDGE_SECRET` | Separate random secret, at least 32 characters; authenticated ingress headers |
 | `STRIPE_SECRET_KEY` | Environment-specific platform account key; server only |
 | `STRIPE_ACCOUNT_ID` | Expected platform `acct_...` identity; no Connect accounts |

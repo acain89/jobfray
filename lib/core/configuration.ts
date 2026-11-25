@@ -15,6 +15,8 @@ export function localSandboxAllowed(env: Readonly<Record<string, string | undefi
         && (env.NODE_ENV !== "production" || env.JOBFRAY_LOCAL_TEST === "1");
 }
 export function validateConfiguration(env: Readonly<Record<string, string | undefined>> = process.env): void {
+    if (env.JOBFRAY_WORKER_MODE !== undefined && !["read_only", "nonfinancial", "full"].includes(env.JOBFRAY_WORKER_MODE))
+        throw new Error("Invalid worker mode");
     if (env.JOBFRAY_SANDBOX === "1" && !localSandboxAllowed(env))
         throw new Error("Sandbox requires explicit local test configuration and a loopback public origin");
     if (env.JOBFRAY_PRODUCTION_PROVIDERS === "1") {
