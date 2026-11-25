@@ -1,6 +1,14 @@
 ﻿# JobFray production payment acceptance procedure
 
-This procedure prepares a later, explicitly authorized production acceptance window. It does not authorize a charge, refund, deployment, database mutation, gate change, service resumption or maintenance cutover. Current results are in [STRIPE_PRODUCTION_CONFIGURATION.md](STRIPE_PRODUCTION_CONFIGURATION.md).
+This procedure prepares a later, explicitly authorized production acceptance window. It does not authorize a charge, refund, deployment, database mutation, gate change, service resumption or maintenance cutover. Historical configuration preparation is in [STRIPE_PRODUCTION_CONFIGURATION.md](STRIPE_PRODUCTION_CONFIGURATION.md). Current deployment and nonfinancial acceptance evidence is retained locally in ignored `artifacts/final-deployment-acceptance/` and summarized below.
+
+## Current deployment and nonfinancial acceptance
+
+The application is pinned to `08d21883e04704d0bd23b27e1c4ff92a13d2d93e` on Render service `srv-d851un6q1p3s73ebcqm0`. The JobFray Worker has a separately reviewed, explicit `WEBHOOK_INGRESS_ENABLED` exception for canonical JSON webhook POSTs with a Stripe-signature header. This is a transport exception: origin ingress authentication and raw-body HMAC verification still run before persistence. General maintenance stays active, private responses remain no-store, and Checkout/indexing stay disabled.
+
+The dedicated live endpoint `we_1UfVZCBM9Cu8R81S03QwFJHc` is enabled for `customer.created` only during this nonfinancial phase. An actual Stripe-created synthetic Customer event was accepted by the deployed normal webhook handler and stored as completed metadata-only work; this was not a locally signed replay. The synthetic Customer was then deleted. The legacy RentFray-URL endpoint was not changed. Account ownership is verified, but exclusive application ownership and absence of dependencies were not established, so disabling it is not authorized by the available evidence.
+
+The notification-only minute worker is independent of financial processing. `JOBFRAY_WORKER_MODE=nonfinancial` and Cloudflare `SCHEDULER_MODE=nonfinancial` require the existing accepted provider gates. They authorize the bounded notification outbox, not Stripe reconciliation, refunds, booking reconciliation, retention deletion or media cleanup. Provider technical readiness is not approval for financial or public release. Actual delivery and worker evidence is retained in ignored `artifacts/final-deployment-acceptance/`.
 
 ## Preconditions
 
@@ -21,11 +29,21 @@ Verify current Render configuration without printing secrets: the dedicated LIVE
 
 Required endpoint: https://jobfray.com/api/stripe/webhook. Required events: checkout.session.completed, checkout.session.expired, charge.dispute.created, charge.dispute.updated, charge.dispute.closed, charge.dispute.funds_withdrawn, charge.dispute.funds_reinstated. This is an account endpoint, not a Connect endpoint. Refund reconciliation uses authoritative provider readback. Async payment methods, ACH, subscriptions, transfers and business payments remain excluded.
 
+Before a financial window, resolve the legacy endpoint's dependencies with authoritative application/account evidence. Disable it only if it is exclusively a JobFray resource, obsolete and unused by other applications. Otherwise isolate JobFray in a genuinely separate account without modifying RF/RFL. Keep Checkout off during any key/account/endpoint transition, and repeat the affected identity/signature checks. Do not infer obsolescence from a zero balance or an old URL.
+
+After isolation is accepted, replace the temporary `customer.created` subscription with the seven required events above and read back the endpoint URL, enabled status, API version `2026-11-18.endive`, account scope and metadata. Preserve the endpoint's proven signing secret unless a separately verified rotation or account transition requires changing it. Leave maintenance active and indexing disabled.
+
 ## Separately authorized financial canary
 
 The owner must approve the exact amount, payment instrument, real transaction, any refund and permitted total exposure before this section is executed. Never use Stripe test card numbers or test PaymentMethods in live mode. Do not create a live Checkout Session merely to test configuration during the current no-charge assignment.
 
 Start with one $2 USD SERVICE platform-fee canary if approved. Expand to $3 QUOTE, $4 RENTAL and $5 RESERVATION only if the additional real payments are explicitly authorized; all four total $14 before any separately authorized refunds. Charge only JobFray's disclosed platform fee. The underlying business price stays outside Stripe.
+
+The minimum authorization must identify one controlled request/business fixture, the real payer/instrument, a maximum charge of 200 USD cents, and whether any refund is authorized. If refunds are not explicitly approved, deny refund-creation calls in the acceptance transport. Use hosted Checkout for real card entry; never request card data in chat or use a test card in live mode. Complete payment inside the application's 15-minute resource hold; the longer provider Session expiry does not extend that hold.
+
+Prepare financial settlement before creating the Session. The active notification-only scheduler cannot settle a payment. Do not set `SCHEDULER_MODE=full`: the current Worker supports only read-only and notification-only modes. Also do not invoke the full `/api/worker` under these restrictions: it includes retention and media cleanup as well as financial work. For a controlled canary, use a separately authorized invocation of the existing `PaymentOperations.run` with an empty/unrelated-work queue check and a provider transport restricted to the approved Session, PaymentIntent and charge IDs; deny refund creation and unrelated objects unless separately authorized. A public financial release additionally needs reviewed recurring financial processing, not just the notification scheduler.
+
+For the canary, enable Checkout only for the approved creation window, create one stable-idempotency Session and immediately return the gate to `0` if no further creations are approved. This does not cancel the owned hosted Session or prevent its signed callback. Retrieve authoritative payment status before retrying anything. Expire only the approved unpaid Session if the window is abandoned; an uncertain payment or refund must not be blindly repeated. Do not remove maintenance or enable indexing during this window.
 
 For each approved canary:
 
