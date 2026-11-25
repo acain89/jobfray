@@ -35,7 +35,13 @@ export async function previewRequest(request, env, now = Date.now()) {
 export async function previewEntry(request, env, now = Date.now()) {
     if (!previewConfigured(env) || new URL(request.url).hostname !== BASE) return privateResponse('Not found', 404);
     const page = message => privateResponse(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JobFray private preview</title><style>body{font:18px system-ui;margin:3rem auto;padding:1rem;max-width:28rem;color:#17243b}input,button{box-sizing:border-box;font:inherit;width:100%;padding:.8rem;margin:.5rem 0}button{background:#17243b;color:white;border:0;border-radius:.4rem}p{line-height:1.5}</style><h1>JobFray private preview</h1><p>${message}</p><form method="post" action="/__jobfray/preview"><label for="key">Preview access key</label><input id="key" name="key" type="password" required maxlength="128" autocomplete="current-password" autocapitalize="none" spellcheck="false"><button>Unlock preview for 8 hours</button></form><p>Normal JobFray registration and sign-in are still required. Customer Checkout remains disabled.</p><form method="post" action="/__jobfray/preview"><input type="hidden" name="action" value="logout"><button>Lock preview on this browser</button></form></html>`, 200, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'" });
-    if (request.method === 'GET') return page('Owner access only. Public maintenance remains active.');
+    if (request.method === 'GET') {
+        const response = page('Owner access only. Public maintenance remains active.');
+        // Browsers may send Origin:null on form POST after no-referrer pages.
+        // This page has no sensitive URL; retain exact Origin validation below.
+        response.headers.set('referrer-policy', 'same-origin');
+        return response;
+    }
     if (request.method !== 'POST') return privateResponse('Method not allowed', 405, { allow: 'GET, POST' });
     if (request.headers.get('origin') !== 'https://' + BASE || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/x-www-form-urlencoded') return privateResponse('Forbidden', 403);
     const reader = request.body?.getReader(); if (!reader) return privateResponse('Invalid request', 400);
