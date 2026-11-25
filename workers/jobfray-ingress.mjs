@@ -51,6 +51,16 @@ export function createWorker(originFetch = fetch) {
                 && request.method === 'POST' && url.pathname === '/api/worker'
                 && request.headers.get('x-jobfray-worker-mode') === scheduledMode(env)
                 && await operatorRequest(request, { ...env, ACCEPTANCE_ENABLED: '1' });
+            // This permits transport, not authentication. The origin verifies
+            // Stripe's HMAC over the untouched body before any persistence.
+            const signature = request.headers.get('stripe-signature') || '';
+            const signatureParts = signature.length <= 2048 ? signature.split(',').map(part => part.trim()) : [];
+            const webhook = env.WEBHOOK_INGRESS_ENABLED === '1' && host === BASE
+                && request.method === 'POST' && url.pathname === '/api/stripe/webhook'
+                && request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() === 'application/json'
+                && signatureParts.some(part => /^t=\d{1,12}$/.test(part))
+                && signatureParts.some(part => /^v1=[a-fA-F0-9]{64}$/.test(part));
+            if (webhook && Number(request.headers.get('content-length')) > 1000000) return privateResponse('Webhook too large', 413);
             if (operator && url.pathname === '/__jobfray/origin-denial' && request.method === 'GET') {
                 const outcomes = [];
                 for (const pathname of ['/', '/api/core', '/api/worker', '/api/stripe/webhook', '/media/private', '/_next/static/nonexistent.js']) {
@@ -63,7 +73,7 @@ export function createWorker(originFetch = fetch) {
                 return privateResponse(JSON.stringify({ outcomes }), 200);
             }
             if (operator && url.pathname === '/__jobfray/scheduler-check' && request.method === 'POST') return privateResponse(JSON.stringify(await runScheduler(env)), 200);
-            if (env.ROUTING_MODE !== 'live' && !operator && !scheduled) return privateResponse('JobFray is preparing its new application. Please check back soon.', 503, { 'retry-after': '300', 'x-jobfray-stage': 'maintenance' });
+            if (env.ROUTING_MODE !== 'live' && !operator && !scheduled && !webhook) return privateResponse('JobFray is preparing its new application. Please check back soon.', 503, { 'retry-after': '300', 'x-jobfray-stage': 'maintenance' });
             if (typeof env.JOBFRAY_EDGE_SECRET !== 'string' || env.JOBFRAY_EDGE_SECRET.length < 32) return privateResponse('Service unavailable', 503);
             // Cloudflare overwrites CF-Connecting-IP on inbound Internet requests.
             // The cf metadata requirement prevents this handler accepting arbitrary
