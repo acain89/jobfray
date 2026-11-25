@@ -15,8 +15,10 @@ export function localSandboxAllowed(env: Readonly<Record<string, string | undefi
         && (env.NODE_ENV !== "production" || env.JOBFRAY_LOCAL_TEST === "1");
 }
 export function validateConfiguration(env: Readonly<Record<string, string | undefined>> = process.env): void {
-    if (env.JOBFRAY_WORKER_MODE !== undefined && !["read_only", "nonfinancial", "full"].includes(env.JOBFRAY_WORKER_MODE))
+    if (env.JOBFRAY_WORKER_MODE !== undefined && !["read_only", "nonfinancial", "financial", "full"].includes(env.JOBFRAY_WORKER_MODE))
         throw new Error("Invalid worker mode");
+    if (env.JOBFRAY_REFUND_PROCESSING_ENABLED !== undefined && !["0", "1"].includes(env.JOBFRAY_REFUND_PROCESSING_ENABLED)) throw new Error("Invalid refund processing gate");
+    if (env.JOBFRAY_REFUND_PROCESSING_ENABLED === "1" && (env.JOBFRAY_WORKER_MODE !== "financial" || env.JOBFRAY_PROVIDER_OPERATIONS_ENABLED !== "1" || env.JOBFRAY_RELEASE_PROVIDERS_VERIFIED !== "1")) throw new Error("Refund processing requires the authorized financial worker");
     if (env.JOBFRAY_SANDBOX === "1" && !localSandboxAllowed(env))
         throw new Error("Sandbox requires explicit local test configuration and a loopback public origin");
     if (env.JOBFRAY_PRODUCTION_PROVIDERS === "1") {

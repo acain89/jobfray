@@ -120,7 +120,8 @@ function resendAdminResult(status, data) {
 }
 module.exports.resendAdminResult=resendAdminResult;function acceptedSchedulerMode(state) {
  const mode=state.schedulerMode||'read_only';
- check(['read_only','nonfinancial'].includes(mode),'FINANCIAL_SCHEDULER_MODE_NOT_AUTHORIZED');
+ check(['read_only','nonfinancial','financial'].includes(mode),'FINANCIAL_SCHEDULER_MODE_NOT_AUTHORIZED');
+ if(mode==='financial')check(state.env.get('JOBFRAY_WORKER_MODE')==='financial'&&['JOBFRAY_DATABASE_ENABLED','JOBFRAY_RELEASE_DB_VERIFIED','JOBFRAY_PRODUCTION_PROVIDERS','JOBFRAY_PROVIDER_OPERATIONS_ENABLED','JOBFRAY_RELEASE_PROVIDERS_VERIFIED'].every(key=>state.env.get(key)==='1'),'FINANCIAL_SCHEDULER_RELEASE_NOT_ACCEPTED');
  if(mode==='nonfinancial')check(state.env.get('JOBFRAY_WORKER_MODE')==='nonfinancial'&&['JOBFRAY_PRODUCTION_PROVIDERS','JOBFRAY_PROVIDER_OPERATIONS_ENABLED','JOBFRAY_RELEASE_PROVIDERS_VERIFIED'].every(key=>state.env.get(key)==='1'),'NONFINANCIAL_SCHEDULER_RELEASE_NOT_ACCEPTED');
  return mode;
 }

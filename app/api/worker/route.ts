@@ -5,12 +5,20 @@ import { deliverNotifications } from "@/lib/core/booking";
 import { cleanup } from "@/lib/core/administration";
 import { failure, response } from "@/lib/core/http";
 import { nonfinancialWorker } from "@/lib/core/worker-transition";
+import { financialWorker } from "@/lib/core/financial-worker";
 export async function POST(request: Request) {
     try {
         authorizeWorker(request);
         const app = await runtime();
         if (app.sandbox)
             requireSandbox(request);
+        if (request.headers.get("x-jobfray-worker-mode") === "financial") {
+            if (!app.paymentOperations) throw new Error("Financial provider is unavailable");
+            const stamp = request.headers.get("x-jobfray-scheduled-at");
+            return response({ ...await financialWorker(app.repo, app.paymentOperations, app.booking, app.notifications, process.env, new Date(), {
+                source: stamp ? "cron" : "authenticated", scheduledAt: stamp && /^\d{13}$/.test(stamp) ? new Date(Number(stamp)).toISOString() : null, commit: process.env.RENDER_GIT_COMMIT ?? null,
+            }), commit: process.env.RENDER_GIT_COMMIT ?? null });
+        }
         if (request.headers.get("x-jobfray-worker-mode") === "nonfinancial")
             return response({ ...await nonfinancialWorker(app.repo, app.notifications), commit: process.env.RENDER_GIT_COMMIT ?? null });
         if (request.headers.get("x-jobfray-worker-mode") === "read_only" || process.env.JOBFRAY_CHECKOUT_ENABLED !== "1") {

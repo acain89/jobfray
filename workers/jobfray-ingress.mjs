@@ -21,18 +21,25 @@ export async function operatorRequest(request, env) {
     return ['GET', 'HEAD'].includes(request.method) || request.method === 'POST' && ['/api/acceptance', '/api/worker', '/api/stripe/webhook', '/__jobfray/scheduler-check'].includes(url.pathname);
 }
 export function createWorker(originFetch = fetch) {
-    const scheduledMode = env => env.SCHEDULER_MODE === 'nonfinancial' ? 'nonfinancial' : 'read_only';
-    const runScheduler = async env => {
+    const scheduledMode = env => ['nonfinancial', 'financial'].includes(env.SCHEDULER_MODE) ? env.SCHEDULER_MODE : 'read_only';
+    const runScheduler = async (env, scheduledAt) => {
         if (env.SCHEDULER_ENABLED !== '1' || !env.JOBFRAY_EDGE_SECRET || !env.JOBFRAY_WORKER_KEY) return { executed: false, reason: 'disabled' };
-        const request = new Request('https://jobfray.com/api/worker', { method: 'POST', redirect: 'manual', headers: { Authorization: 'Bearer ' + env.JOBFRAY_WORKER_KEY, 'x-jf-edge-secret': env.JOBFRAY_EDGE_SECRET, 'x-jf-client-ip': '192.0.2.1', 'x-forwarded-proto': 'https', 'x-jobfray-worker-mode': scheduledMode(env) } });
+        const request = new Request('https://jobfray.com/api/worker', { method: 'POST', redirect: 'manual', headers: { Authorization: 'Bearer ' + env.JOBFRAY_WORKER_KEY, 'x-jf-edge-secret': env.JOBFRAY_EDGE_SECRET, 'x-jf-client-ip': '192.0.2.1', 'x-forwarded-proto': 'https', 'x-jobfray-worker-mode': scheduledMode(env), ...(Number.isSafeInteger(scheduledAt) ? { 'x-jobfray-scheduled-at': String(scheduledAt) } : {}) } });
         const response = await originFetch(request, { cache: 'no-store', cf: { cacheEverything: false, cacheTtl: -1 } });
         let result; try { result = await response.json(); } catch { result = {}; }
-        const evidence = { executed: true, status: response.status, mode: result.mode || null, financialOperationsExecuted: result.financialOperationsExecuted, mutationsExecuted: result.mutationsExecuted };
+        const evidence = { executed: true, status: response.status, mode: result.mode || null, financialOperationsExecuted: result.financialOperationsExecuted, mutationsExecuted: result.mutationsExecuted,
+            ...(scheduledMode(env) === 'financial' ? { executionAccepted: result.executionAccepted, skipped: result.skipped, commit: result.commit, providers: result.providers, expired: result.expired, alerts: result.alerts, scheduledAt } : {}) };
         console.log(JSON.stringify({ event: 'jobfray.scheduler', ...evidence }));
         return evidence;
     };
     return {
-        async scheduled(_controller, env) { const result = await runScheduler(env); if (result.executed && (result.status !== 200 || result.mode !== scheduledMode(env) || result.financialOperationsExecuted !== false || result.mode === 'read_only' && result.mutationsExecuted !== false)) throw new Error('Scheduled worker acceptance failed'); },
+        async scheduled(controller, env) {
+            const result = await runScheduler(env, controller.scheduledTime);
+            if (!result.executed) return;
+            const invalid = result.status !== 200 || result.mode !== scheduledMode(env)
+                || (result.mode === 'financial' ? result.executionAccepted !== true : result.financialOperationsExecuted !== false || result.mode === 'read_only' && result.mutationsExecuted !== false);
+            if (invalid) throw new Error('Scheduled worker acceptance failed');
+        },
         async fetch(request, env) {
             const url = new URL(request.url), host = url.hostname.toLowerCase();
             const slug = host.endsWith('.' + BASE) ? host.slice(0, -BASE.length - 1) : '';

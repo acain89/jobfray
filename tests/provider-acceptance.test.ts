@@ -49,11 +49,14 @@ test("Resend invalid credentials remain failures and administrative success does
     assert.equal(resendAdminResult(503, {}).permissionCheck, "administrative_read_failed");
 });
 
-test("deployment publisher defaults to read-only and cannot publish an unaccepted or financial scheduler mode", () => {
+test("deployment publisher defaults to read-only and rejects full or unaccepted scheduler modes", () => {
     assert.equal(acceptedSchedulerMode({ env: new Map() }), "read_only");
     assert.throws(() => acceptedSchedulerMode({ schedulerMode: "full", env: new Map() }), /NOT_AUTHORIZED/);
     assert.throws(() => acceptedSchedulerMode({ schedulerMode: "nonfinancial", env: new Map() }), /NOT_ACCEPTED/);
     const values = { JOBFRAY_WORKER_MODE: "nonfinancial", JOBFRAY_PRODUCTION_PROVIDERS: "1", JOBFRAY_PROVIDER_OPERATIONS_ENABLED: "1", JOBFRAY_RELEASE_PROVIDERS_VERIFIED: "1" };
     assert.equal(acceptedSchedulerMode({ schedulerMode: "nonfinancial", env: new Map(Object.entries(values)) }), "nonfinancial");
     for (const key of Object.keys(values)) assert.throws(() => acceptedSchedulerMode({ schedulerMode: "nonfinancial", env: new Map(Object.entries({ ...values, [key]: "0" })) }), /NOT_ACCEPTED/);
+    const financial = { ...values, JOBFRAY_WORKER_MODE: "financial", JOBFRAY_DATABASE_ENABLED: "1", JOBFRAY_RELEASE_DB_VERIFIED: "1" };
+    assert.equal(acceptedSchedulerMode({ schedulerMode: "financial", env: new Map(Object.entries(financial)) }), "financial");
+    assert.throws(() => acceptedSchedulerMode({ schedulerMode: "financial", env: new Map(Object.entries({ ...financial, JOBFRAY_RELEASE_DB_VERIFIED: "0" })) }), /NOT_ACCEPTED/);
 });

@@ -31,13 +31,16 @@ export class PaymentOperations {
         await this.repo.transaction([id], async (tx) => { if (!await tx.get("operations", id))
             await tx.put("operations", { id, businessId, kind: "CHECKOUT_RECONCILE", state: "PENDING", availableAt: now.toISOString(), attempts: 0, leaseUntil: null, payload: { sessionId, expiresAt } }); });
     }
-    async run(now: Date) {
+    async run(now: Date, options: { limit?: number; processRefunds?: boolean } = {}) {
+        const limit = options.limit ?? 50;
+        if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new AppError("Invalid financial batch limit");
         const began = performance.now(), currentNow = () => new Date(now.getTime() + performance.now() - began);
         const batch = await this.repo.transaction(["provider-worker-claim"], async (tx) => {
             const pending = await tx.find("operations", { state: "PENDING" }, { limit: 50, oneOf: { field: "kind", values: ["PAYMENT_EVENT", "CHECKOUT_RECONCILE"] }, ranges: [{ field: "availableAt", operator: "lte", value: now.toISOString() }] }), interrupted = await tx.find("operations", { state: "RUNNING" }, { limit: 50, oneOf: { field: "kind", values: ["PAYMENT_EVENT", "CHECKOUT_RECONCILE"] }, ranges: [{ field: "leaseUntil", operator: "lte", value: now.toISOString() }] });
-            const rows = [...pending, ...interrupted].filter(x => ["PAYMENT_EVENT", "CHECKOUT_RECONCILE"].includes(x.kind)).slice(0, 50);
+            const rows = [...pending, ...interrupted].filter(x => ["PAYMENT_EVENT", "CHECKOUT_RECONCILE"].includes(x.kind)).slice(0, limit);
             const claimed: Operation[] = [];
             for (const row of rows) {
+                if (row.attempts >= 20) { await tx.put("operations", { ...row, state: "FAILED", leaseUntil: null }); continue; }
                 const value = { ...row, state: "RUNNING" as const, leaseUntil: new Date(now.getTime() + 60000).toISOString(), leaseToken: randomUUID(), attempts: row.attempts + 1 };
                 await tx.put("operations", value);
                 claimed.push(value);
@@ -75,26 +78,58 @@ export class PaymentOperations {
             await this.repo.transaction([row.id], async (tx) => { const current = await tx.get("operations", row.id); if (!current || current.leaseToken !== row.leaseToken)
                 return; await tx.put("operations", { ...current, state: complete ? "DONE" : row.attempts >= 20 ? "FAILED" : "PENDING", leaseUntil: null, availableAt: new Date(now.getTime() + Math.min(3600000, 30000 * 2 ** Math.min(row.attempts, 7))).toISOString() }); });
         }
-        const refunds = await this.repo.transaction([], tx => tx.find("refunds", {}, { limit: 50, oneOf: { field: "state", values: ["REQUIRED", "PROCESSING"] } }));
+        const refunds = options.processRefunds === false ? [] : await this.repo.transaction([], tx => tx.find("refunds", {}, { limit: 50, oneOf: { field: "state", values: ["REQUIRED", "PROCESSING"] } }));
+        let refundAttempts = 0;
         for (const row of refunds) {
+            if (refundAttempts >= limit) break;
             const job = "refund-operation:" + row.id;
-            const claimed = await this.repo.transaction([job], async (tx) => { const old = await tx.get("operations", job); if (old?.leaseUntil && Date.parse(old.leaseUntil) > now.getTime())
-                return false; if (old && !row.providerId && now.getTime() - Date.parse(text(old.payload.startedAt)) >= 23 * 3600000) {
-                await tx.put("operations", { ...old, state: "FAILED", leaseUntil: null });
-                return false;
-            } await tx.put("operations", { id: job, businessId: row.businessId, kind: "REFUND", state: "RUNNING", availableAt: now.toISOString(), attempts: (old?.attempts ?? 0) + 1, leaseUntil: new Date(now.getTime() + 60000).toISOString(), payload: { startedAt: old?.payload.startedAt ?? now.toISOString() } }); return true; });
+            const claimed = await this.repo.transaction([job, "refund-payment:" + row.paymentId], async (tx) => {
+                const current = await tx.get("refunds", row.id), old = await tx.get("operations", job), at = currentNow();
+                if (!current || !["REQUIRED", "PROCESSING"].includes(current.state) || old?.state === "FAILED" || old?.state === "DONE"
+                    || old?.leaseUntil && Date.parse(old.leaseUntil) > at.getTime() || old && Date.parse(old.availableAt) > at.getTime()) return null;
+                const original = (await tx.find("events", { businessId: current.businessId, requestId: current.requestId, providerId: current.paymentId }, { limit: 1 }))[0];
+                const request = await tx.get("requests", current.requestId);
+                const peers = await tx.find("refunds", { paymentId: current.paymentId });
+                const canonical = [...peers].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))[0];
+                const authorized = ["JF_ALLOCATION_MISSING", "PAYMENT_AMOUNT_MISMATCH", "DUPLICATE_CHARGE", "HOLD_EXPIRED", "BUSINESS_UNAVAILABLE"].includes(current.reason)
+                    && original?.currency === "USD" && [200, 300, 400, 500].includes(original.amountCents)
+                    && request?.businessId === current.businessId && canonical?.id === current.id
+                    && !peers.some(peer => peer.id !== current.id && (peer.providerId || peer.state === "REFUNDED"));
+                const exhausted = (old?.attempts ?? 0) >= 20 || old && !current.providerId && at.getTime() - Date.parse(text(old.payload.startedAt)) >= 23 * 3600000;
+                if (!authorized || exhausted) {
+                    await tx.put("refunds", { ...current, state: "FAILED" });
+                    await tx.put("operations", { id: job, businessId: current.businessId, kind: "REFUND", state: "FAILED", attempts: old?.attempts ?? 0, availableAt: at.toISOString(), leaseUntil: null, payload: { ...old?.payload, startedAt: old?.payload.startedAt ?? at.toISOString(), failure: authorized ? "RETRY_LIMIT" : "REFUND_AUTHORIZATION" } });
+                    await audit(tx, current.businessId, authorized ? "REFUND_RETRY_LIMIT" : "REFUND_AUTHORIZATION_REJECTED", "WORKER", at, current.requestId);
+                    return null;
+                }
+                const operation: Operation = { id: job, businessId: current.businessId, kind: "REFUND", state: "RUNNING", availableAt: at.toISOString(), attempts: (old?.attempts ?? 0) + 1, leaseToken: randomUUID(), leaseUntil: new Date(at.getTime() + 60000).toISOString(), payload: { startedAt: old?.payload.startedAt ?? at.toISOString() } };
+                await tx.put("operations", operation);
+                return { refund: current, operation, amountCents: original!.amountCents };
+            });
             if (!claimed)
                 continue;
+            refundAttempts++;
             try {
-                const result = row.providerId ? await this.stripe.refundStatus(row.providerId) : await this.stripe.refund(row.paymentId, "jf-refund:" + hash(row.id));
+                const currentRefund = claimed.refund;
+                const result = currentRefund.providerId ? await this.stripe.refundStatus(currentRefund.providerId) : await this.stripe.refund(currentRefund.paymentId, "jf-refund:" + hash(currentRefund.id));
                 if ("paymentId" in result && result.paymentId !== row.paymentId)
                     throw new AppError("Refund identity mismatch", 403);
                 await this.repo.transaction([job, "tenant:" + row.businessId], async (tx) => { const current = await tx.get("refunds", row.id); if (!current)
-                    return; const original=(await tx.find("events",{businessId:row.businessId,requestId:row.requestId,providerId:row.paymentId},{limit:1}))[0];
-                    const state = original?.amountCents!==result.amountCents?"FAILED":result.state === "succeeded" ? "REFUNDED" : result.state === "pending" ? "PROCESSING" : "FAILED"; await tx.put("refunds", { ...current, providerId: result.id,amountCents:result.amountCents,providerStatus:result.state, state, resolvedAt: state === "REFUNDED" ? now.toISOString() : null }); const operation = (await tx.get("operations", job))!; await tx.put("operations", { ...operation, state: state === "PROCESSING" ? "PENDING" : "DONE", leaseUntil: null }); await audit(tx, row.businessId, "REFUND_PROVIDER:" + state+":"+result.amountCents, "WORKER", now, row.requestId); });
+                    return; const operation = (await tx.get("operations", job))!;
+                    if (operation.leaseToken !== claimed.operation.leaseToken || operation.state !== "RUNNING") return;
+                    const state = claimed.amountCents!==result.amountCents?"FAILED":result.state === "succeeded" ? "REFUNDED" : result.state === "pending" ? "PROCESSING" : "FAILED"; await tx.put("refunds", { ...current, providerId: result.id,amountCents:result.amountCents,providerStatus:result.state, state, resolvedAt: state === "REFUNDED" ? currentNow().toISOString() : null });
+                    await tx.put("operations", { ...operation, state: state === "PROCESSING" ? "PENDING" : state === "FAILED" ? "FAILED" : "DONE", leaseUntil: null, availableAt: new Date(currentNow().getTime() + Math.min(3600000, 30000 * 2 ** Math.min(operation.attempts, 7))).toISOString() }); await audit(tx, row.businessId, "REFUND_PROVIDER:" + state+":"+result.amountCents, "WORKER", currentNow(), row.requestId); });
             }
-            catch { /* retain required/processing status; stable idempotency key, bounded retry window */ }
+            catch {
+                await this.repo.transaction([job], async tx => {
+                    const operation = await tx.get("operations", job), current = await tx.get("refunds", row.id);
+                    if (!operation || !current || operation.leaseToken !== claimed.operation.leaseToken || operation.state !== "RUNNING") return;
+                    const exhausted = operation.attempts >= 20;
+                    if (exhausted) await tx.put("refunds", { ...current, state: "FAILED" });
+                    await tx.put("operations", { ...operation, state: exhausted ? "FAILED" : "PENDING", leaseUntil: null, availableAt: new Date(currentNow().getTime() + Math.min(3600000, 30000 * 2 ** Math.min(operation.attempts, 7))).toISOString() });
+                });
+            }
         }
-        return { operations: batch.length, refunds: refunds.length };
+        return { operations: batch.length, refunds: refundAttempts };
     }
 }

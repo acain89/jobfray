@@ -326,20 +326,26 @@ export class BookingService {
             return { accessToken: token, status: request.status, reference: request.reference, snapshot, request };
         });
     }
-    async reconcile(now: Date) {
-        const tenants = await this.repo.transaction([], async (tx) => [...new Set((await tx.find("requests", { status: "PENDING_PAYMENT" }, { limit: 100, ranges: [{ field: "expiresAt", operator: "lte", value: now.toISOString() }] })).map(r => r.businessId))]);
+    async reconcile(now: Date, limit = 100) {
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new AppError("Invalid expired-hold batch limit");
+        const tenants = await this.repo.transaction([], async (tx) => [...new Set((await tx.find("requests", { status: "PENDING_PAYMENT" }, { limit, ranges: [{ field: "expiresAt", operator: "lte", value: now.toISOString() }] })).map(r => r.businessId))]);
         let count = 0;
-        for (const businessId of tenants)
-            await this.repo.transaction(["tenant:" + businessId], async (tx) => {
-                for (const r of await tx.find("requests", { businessId, status: "PENDING_PAYMENT" }, { limit: 100, ranges: [{ field: "expiresAt", operator: "lte", value: now.toISOString() }] }))
+        for (const businessId of tenants) {
+            if (count >= limit) break;
+            const processed = await this.repo.transaction(["tenant:" + businessId], async (tx) => {
+                let changed = 0;
+                for (const r of await tx.find("requests", { businessId, status: "PENDING_PAYMENT" }, { limit: limit - count, ranges: [{ field: "expiresAt", operator: "lte", value: now.toISOString() }] }))
                     if (Date.parse(r.expiresAt) <= now.getTime()) {
                         await tx.put("requests", { ...r, status: "EXPIRED" });
                         for (const a of await tx.find("allocations", { businessId, requestId: r.id }))
                             await tx.put("allocations", { ...a, status: "RELEASED", expiresAt: null });
                         await audit(tx, businessId, "HOLD_EXPIRED", "RECONCILIATION", now, r.id);
-                        count++;
+                        changed++;
                     }
+                return changed;
             });
+            count += processed;
+        }
         return count;
     }
     async release(token: string | undefined, businessId: string, requestId: string, now: Date) {
@@ -360,10 +366,11 @@ export class BookingService {
         });
     }
 }
-export async function deliverNotifications(repo: Repository, transport: import("./providers").NotificationTransport, now: Date) {
+export async function deliverNotifications(repo: Repository, transport: import("./providers").NotificationTransport, now: Date, limit = 50) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new AppError("Invalid notification batch limit");
     const began = performance.now();
     const batch = await repo.transaction(["outbox-worker"], async (tx) => {
-        const rows = [...await tx.find("outbox", { state: "PENDING" }, { limit: 50, oneOf: { field: "channel", values: ["EMAIL", "PUSH"] }, ranges: [{ field: "availableAt", operator: "lte", value: now.toISOString() }] }), ...await tx.find("outbox", { state: "SENDING" }, { limit: 50, oneOf: { field: "channel", values: ["EMAIL", "PUSH"] }, ranges: [{ field: "availableAt", operator: "lte", value: now.toISOString() }, { field: "leaseUntil", operator: "lte", value: now.toISOString() }] })].filter(r => r.state !== "SENT" && Date.parse(r.availableAt) <= now.getTime() && (!r.leaseUntil || Date.parse(r.leaseUntil) <= now.getTime())).slice(0, 50);
+        const rows = [...await tx.find("outbox", { state: "PENDING" }, { limit, oneOf: { field: "channel", values: ["EMAIL", "PUSH"] }, ranges: [{ field: "availableAt", operator: "lte", value: now.toISOString() }] }), ...await tx.find("outbox", { state: "SENDING" }, { limit, oneOf: { field: "channel", values: ["EMAIL", "PUSH"] }, ranges: [{ field: "availableAt", operator: "lte", value: now.toISOString() }, { field: "leaseUntil", operator: "lte", value: now.toISOString() }] })].filter(r => r.state !== "SENT" && Date.parse(r.availableAt) <= now.getTime() && (!r.leaseUntil || Date.parse(r.leaseUntil) <= now.getTime())).slice(0, limit);
         const leased = rows.map(row => ({ ...row, state: "SENDING" as const, leaseUntil: new Date(now.getTime() + 60000).toISOString(), leaseToken: randomUUID() }));
         for (const row of leased)
             await tx.put("outbox", row);
