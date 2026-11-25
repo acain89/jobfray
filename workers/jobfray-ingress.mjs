@@ -43,6 +43,17 @@ export function createWorker(originFetch = fetch) {
             }
             // Default is closed. Only a later reviewed cutover may enable forwarding.
             const operator = await operatorRequest(request, env);
+            if (operator && url.pathname === '/__jobfray/origin-denial' && request.method === 'GET') {
+                const outcomes = [];
+                for (const pathname of ['/', '/api/core', '/api/worker', '/api/stripe/webhook', '/media/private', '/_next/static/nonexistent.js']) {
+                    const target = new URL('https://jobfray.com' + pathname);
+                    const response = await originFetch(new Request(target, { headers: { 'x-jf-edge-secret': 'forged', 'x-jf-client-ip': '127.0.0.1', 'x-middleware-subrequest': 'proxy:proxy:proxy:proxy:proxy' }, redirect: 'manual' }), { cache: 'no-store', cf: { cacheEverything: false, cacheTtl: -1 } });
+                    outcomes.push({ pathname, status: response.status }); await response.body?.cancel();
+                }
+                const invalidWorker = await originFetch(new Request('https://jobfray.com/api/worker', { method: 'POST', headers: { Authorization: 'Bearer forged', 'x-jf-edge-secret': env.JOBFRAY_EDGE_SECRET, 'x-jf-client-ip': '192.0.2.1' }, redirect: 'manual' }), { cache: 'no-store' });
+                outcomes.push({ pathname: '/api/worker-invalid-bearer', status: invalidWorker.status }); await invalidWorker.body?.cancel();
+                return privateResponse(JSON.stringify({ outcomes }), 200);
+            }
             if (operator && url.pathname === '/__jobfray/scheduler-check' && request.method === 'POST') return privateResponse(JSON.stringify(await runScheduler(env)), 200);
             if (env.ROUTING_MODE !== 'live' && !operator) return privateResponse('JobFray is preparing its new application. Please check back soon.', 503, { 'retry-after': '300', 'x-jobfray-stage': 'maintenance' });
             if (typeof env.JOBFRAY_EDGE_SECRET !== 'string' || env.JOBFRAY_EDGE_SECRET.length < 32) return privateResponse('Service unavailable', 503);

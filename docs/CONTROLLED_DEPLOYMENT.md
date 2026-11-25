@@ -2,7 +2,7 @@
 
 This release incorporates the reviewed changes since Phase 6A: strict PostgreSQL validation, the Geocodio replacement, Stripe sandbox-verified fee binding/idempotency, and globally authenticated ingress. Financial Checkout and indexing remain disabled. The live account retains a legacy RentFray webhook; do not edit RF/RFL resources. Account-wide event delivery cannot be safely isolated by changing only JobFray, so financial activation stays blocked pending an authorized isolation decision.
 
-The deployment is pinned to the reviewed commit on feat/jobfray-rebuild. Main and the original worktree are preserved. Render build/start commands use npm ci, Prisma generation, a Next production build, and next start on 0.0.0.0:$PORT; health checks use /api/health. Autodeploy stays off.
+The deployment is pinned to the reviewed commit on feat/jobfray-rebuild. Main and the original worktree are preserved. Render build/start commands use npm ci --include=dev, the pinned Prisma CLI with --no-install, a Next production build, and next start on 0.0.0.0:$PORT; health checks use /api/health. Autodeploy stays off.
 
 ## Acceptance controls
 
@@ -23,3 +23,5 @@ The dedicated database's migration ledger and exact schema are inspected read-on
 Managed recovery availability and logical export/isolated restore results are recorded in ignored artifacts/controlled-deployment. Restore targets are fresh loopback-only PostgreSQL instances, never the production database. Archive credentials and signed download URLs must remain in process memory. Restored data and logs are sensitive, ignored artifacts and must never be committed.
 
 The final deployed commit, deployment IDs, provider checks, restore results and remaining blockers are recorded in the sanitized controlled-deployment report. Full readiness must remain false until all required provider and ingress gates have genuine acceptance evidence. Email sending, device push, live charges/refunds, RF endpoint changes and public activation require separate authorization when not exercised here.
+
+Managed logical exports were restored successfully to a fresh loopback-only PostgreSQL 17 target. The export restores schema/data but recovery must also reapply the reviewed restricted-role policy and database TEMP revocation; the isolated test verifies the complete catalog, all seven migration ledger entries and effective application ACLs after that step. No production migration or schema repair was performed.
