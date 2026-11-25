@@ -33,7 +33,7 @@ async function setup(mode: BusinessMode) {
                 requestId = params.get("client_reference_id")!;
                 amount = Number(params.get("line_items[0][price_data][unit_amount]"));
             }
-            value = { id: sid, mode: "payment", livemode: false, currency: "usd", client_reference_id: requestId, metadata: { jobfray_request_id: requestId }, payment_method_types: ["card"], amount_total: amount, url: "https://checkout.stripe.com/c/pay/synthetic", status: paid ? "complete" : "open", payment_status: paid ? "paid" : "unpaid", payment_intent: { id: "pi_synthetic", status: "succeeded", currency: "usd", livemode: false, amount_received: amount, metadata: { jobfray_request_id: requestId }, latest_charge: { id: "ch_synthetic", payment_intent: "pi_synthetic", livemode: false, paid: true, currency: "usd", amount, payment_method_details: { type: "card", card: { brand: "visa" } } } } };
+            value = { id: sid, mode: "payment", livemode: false, currency: "usd", client_reference_id: requestId, metadata: { jobfray_request_id: requestId }, payment_method_types: ["card"], amount_total: amount, url: "https://checkout.stripe.com/c/pay/synthetic", status: paid ? "complete" : "open", payment_status: paid ? "paid" : "unpaid", payment_intent: { id: "pi_synthetic", status: "succeeded", currency: "usd", livemode: false, amount: amount, amount_received: amount, metadata: { jobfray_request_id: requestId }, latest_charge: { id: "ch_synthetic", payment_intent: "pi_synthetic", livemode: false, paid: true, currency: "usd", amount, payment_method_details: { type: "card", card: { brand: "visa" } } } } };
         }
         return new Response(JSON.stringify(value));
     }, () => now.getTime());

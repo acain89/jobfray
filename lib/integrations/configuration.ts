@@ -26,8 +26,7 @@ export function providerConfiguration(env: Readonly<Record<string, string | unde
     const webhookSecrets = required("STRIPE_WEBHOOK_SECRETS").split(",");
     if (webhookSecrets.some(v => !v.startsWith("whsec_")))
         throw new Error("Invalid Stripe webhook secret");
-    if (required("MAPBOX_PERMANENT_GEOCODING") !== "1")
-        throw new Error("Permanent geocoding entitlement required before persisted geocoding");
+    const geocodioKey = required("GEOCODIO_API_KEY");
     const edge = required("JOBFRAY_EDGE_SECRET");
     if (edge.length < 32)
         throw new Error("Trusted edge secret must contain at least 32 characters");
@@ -36,5 +35,5 @@ export function providerConfiguration(env: Readonly<Record<string, string | unde
         throw new Error("Complete VAPID configuration required");
     if (vapidPublic && env.NEXT_PUBLIC_VAPID_PUBLIC_KEY !== vapidPublic)
         throw new Error("Public VAPID key mismatch");
-    return { stripe: { key: stripeKey, webhookSecrets, account: required("STRIPE_ACCOUNT_ID"), live, origin, integrationId: required("STRIPE_INTEGRATION_IDENTIFIER") }, email: { key: required("RESEND_API_KEY"), sender: required("JOBFRAY_EMAIL_FROM") }, mapbox: required("MAPBOX_ACCESS_TOKEN"), cloudinary: { cloud: required("CLOUDINARY_CLOUD_NAME"), key: required("CLOUDINARY_API_KEY"), secret: required("CLOUDINARY_API_SECRET") }, origin, ...(vapidPublic && vapidPrivate && vapidSubject ? { vapidPublic, vapidPrivate, vapidSubject } : {}) };
+    return { stripe: { key: stripeKey, webhookSecrets, account: required("STRIPE_ACCOUNT_ID"), live, origin, integrationId: required("STRIPE_INTEGRATION_IDENTIFIER") }, email: { key: required("RESEND_API_KEY"), sender: required("JOBFRAY_EMAIL_FROM") }, geocodio: geocodioKey, cloudinary: { cloud: required("CLOUDINARY_CLOUD_NAME"), key: required("CLOUDINARY_API_KEY"), secret: required("CLOUDINARY_API_SECRET") }, origin, ...(vapidPublic && vapidPrivate && vapidSubject ? { vapidPublic, vapidPrivate, vapidSubject } : {}) };
 }

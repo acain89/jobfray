@@ -31,8 +31,7 @@ No provider account was connected during Phase 5. In particular, Stripe was not 
 | `STRIPE_INTEGRATION_IDENTIFIER` | Identifier accepted by the pinned Stripe API integration configuration |
 | `RESEND_API_KEY` | Scoped transactional sending key |
 | `JOBFRAY_EMAIL_FROM` | Authenticated sender on an owner-controlled verified domain |
-| `MAPBOX_ACCESS_TOKEN` | Server-side geocoding token with required account permissions |
-| `MAPBOX_PERMANENT_GEOCODING` | Must be `1`, only after permanent-storage entitlement is confirmed |
+| `GEOCODIO_API_KEY` | Dedicated server-side Geocodio key for US forward geocoding; no paid storage entitlement flag required |
 | `CLOUDINARY_CLOUD_NAME` | Dedicated, separately authorized environment cloud |
 | `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Server-only authenticated upload, download and deletion credentials |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Optional complete VAPID configuration; subject `mailto:` or HTTPS contact |
@@ -50,7 +49,7 @@ The current API uses `allowed_payment_method_types`, not the removed creation pa
 
 Set the platform account's card/wallet settings and verified payment domains as required. Configure signed events at `/api/stripe/webhook`, including `checkout.session.completed`, `checkout.session.expired`, and applicable `charge.dispute.*` events. Completion events enter a durable queue; a redirect never confirms payment. Expiration is reconciled by worker/session status; dispute events create durable audit and operator attention records. Other signed event types are retained as metadata-only acknowledgments. Refunds are status-polled; no dependency on browser redirects or a refund webhook.
 
-Stripe's hosted Session minimum expiration is 30 minutes. The internal resource hold remains exactly 15 minutes. Workers expire open sessions after internal expiry; a successful late payment is remediated and cannot resurrect lost capacity. Creation and refund retries use stable keys. Checkout preparation and signed-event records permit recovery after interruption. Refunds with uncertain creation and no provider ID stop automated creation before the provider's idempotency retention expires; reconcile manually rather than risking a second refund.
+Stripe's hosted Session minimum expiration is 30 minutes. Booking requests use a stable provider deadline of request creation plus one hour so retries preserve identical idempotent request parameters. The internal resource hold remains exactly 15 minutes. Workers expire open sessions after internal expiry; a successful late payment is remediated and cannot resurrect lost capacity. Creation and refund retries use stable keys. Checkout preparation and signed-event records permit recovery after interruption. Refunds with uncertain creation and no provider ID stop automated creation before the provider's idempotency retention expires; reconcile manually rather than risking a second refund.
 
 No Stripe operations are authorized by this document. Obtain separate explicit permission before connecting or conducting any provider test.
 
@@ -62,7 +61,7 @@ Customer contact phone numbers are normalized and format-validated, then explici
 
 ## Geocoding
 
-All geocoding is server-side Mapbox v6. The application persists validated business/service coordinates; therefore permanent geocoding rights are required before use. Every request sets `permanent=true`. Temporary-only entitlement is rejected. ZIP results use a bounded 256-entry, 24-hour cache; exact customer addresses are not cached. Confirm token restrictions and permanent-storage entitlement/account billing independently. [Mapbox geocoding and storage permissions](https://docs.mapbox.com/api/search/geocoding/).
+Geocoding uses Geocodio v2.1 over server-side HTTPS with Bearer authentication and US-only requests. US forward results may be retained and used without a map under the reviewed terms; underlying data-source conditions still apply. ZIP results use a bounded 256-entry, 24-hour cache; customer addresses are never cached by JobFray. Only latitude/longitude enter the existing point contract. Ambiguous, foreign, weak, malformed and address-centroid results fail closed. No map, API key, raw response or private base address is added to the public directory. See [provider comparison, licensing and account setup](GEOCODING_PROVIDER_REVIEW.md). Existing Mapbox variables are obsolete for this build; preserve remote values until separately authorized removal, and do not reuse their credentials.
 
 Private mobile bases do not enter the public search projection. A public ZIP centroid is used instead; discovery distance is approximate and does not replace exact server-side service-address eligibility.
 
@@ -79,3 +78,7 @@ Generate dedicated VAPID keys offline, place the private key only on the server,
 ## Trusted edge
 
 Ingress must strip incoming `x-jf-edge-secret` and `x-jf-client-ip`, derive the actual client IP from a trusted connection/proxy chain, and inject both headers server-side. The secret authenticates this assertion; raw client-controlled forwarding headers are insufficient. Direct requests without valid assertions fail closed on protected production operations. Configure access restrictions so an attacker cannot bypass the trusted ingress. Render does not automatically provide these custom authenticated headers. This ingress configuration is an essential unresolved deployment requirement, not an implied connection or DNS change.
+
+Stripe sandbox owner execution and the exact production activation requirements are documented in [STRIPE_SANDBOX_ACTIVATION.md](STRIPE_SANDBOX_ACTIVATION.md). Preparation uses mocks only; actual sandbox interoperability requires owner execution.
+
+Cloudflare/Render infrastructure is now staged in maintenance with the obsolete origin suspended. See [CLOUDFLARE_RENDER_INFRASTRUCTURE.md](CLOUDFLARE_RENDER_INFRASTRUCTURE.md) for configured DNS/TLS, recovery evidence, global ingress enforcement and remaining deployed acceptance. Trusted ingress remains unverified against a deployed rebuild.

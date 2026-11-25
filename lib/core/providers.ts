@@ -36,6 +36,8 @@ export interface PaymentIntent {
     currency: "USD";
     idempotencyKey: string;
     checkoutUrl?: string;
+    /** Stable absolute provider deadline, preserved across idempotent creation retries. */
+    providerExpiresAt?: number;
 }
 export interface VerifiedPayment {
     eventId: string;

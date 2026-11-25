@@ -23,7 +23,7 @@ Local completion does not authorize release. All unchecked external steps remain
 - [ ] Separate authorization to connect Stripe; none granted or used in Phase 5.
 - [ ] Confirm Stripe API/version/integration identifier, card-only restrictions and eligible wallets with the actual intended account; verify signed webhooks, refunds, reconciliation and disputes in an authorized environment.
 - [ ] Verify Resend sender/domain authentication, delivery, provider rate limits/idempotency and processing terms.
-- [ ] Confirm Mapbox permanent storage entitlement and server-token controls; validate real ZIP/exact address accuracy and radius behavior.
+- [ ] Verify dedicated Geocodio account, US data-source terms, server-key/billing controls and provider processing retention; validate real ZIP/address quality and unchanged radius behavior. See GEOCODING_PROVIDER_REVIEW.md.
 - [ ] Verify authenticated Cloudinary original/derivative isolation, signed private downloads, deletion, retention and recovery after ambiguous uploads.
 - [ ] If enabling optional push, verify VAPID/browser interoperability, install/permission behavior, logout/recovery and subscription expiry on supported real devices.
 - [ ] Provision a separately authorized isolated staging then production database, application/migration roles, TLS/private access and real backup/PITR/restore operations.

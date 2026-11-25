@@ -229,7 +229,8 @@ export class BookingService {
             }
             return { request, snapshot };
         });
-        const intent = await this.payments.create({ requestId, amountCents: result.snapshot.platformFeeCents, currency: "USD", idempotencyKey: "jf-fee:" + requestId });
+        const intent = await this.payments.create({ requestId, amountCents: result.snapshot.platformFeeCents, currency: "USD", idempotencyKey: "jf-fee:" + requestId,
+            providerExpiresAt: Math.floor(Date.parse(result.request.createdAt) / 1000) + 3600 });
         await this.repo.transaction(["tenant:" + result.request.businessId], async (tx) => {
             const current = (await tx.get("requests", requestId))!;
             if (current.paymentIntentId && current.paymentIntentId !== intent.id)

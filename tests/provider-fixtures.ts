@@ -18,7 +18,8 @@ function config(mode: BusinessMode): ModeConfig {
         case "RESERVATION": return { ...base, mode, price: { kind: "PER_PERSON", cents: 2000 }, capacityUnit: "PERSON", interval: "SLOT", slotMinutes: 60, minimumParty: 1, maximumParty: 8, noticeMinutes: 0, arrivalInstructions: "" };
     }
 }
-async function fixture(capacity = 10, repo: Repository = new MemoryRepository()) {
+async function fixture(capacity = 10, repo: Repository = new MemoryRepository(), at: Date = now) {
+    const now = at;
     await register(repo, { email: profile.email, password }, now);
     const token = await repo.transaction([], async (tx) => (await tx.find("outbox", { kind: "VERIFY_EMAIL" }))[0]!.body);
     await consumeAccountToken(repo, token, "VERIFY_EMAIL", null, now);

@@ -3,6 +3,10 @@ import { spawn } from "node:child_process";
 import net from "node:net";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+
+const ingressTestSecret="synthetic-http-ingress-secret-".repeat(3);
+const originalFetch=globalThis.fetch;
+const fetch=(url,init={})=>{const headers=new Headers(init.headers);headers.set("x-jf-edge-secret",ingressTestSecret);headers.set("x-jf-client-ip","203.0.113.55");return originalFetch(url,{...init,headers});};
 // Never inherit provider/database credentials into the smoke-test application.
 const env = Object.fromEntries(
   Object.entries(process.env).filter(([key]) =>
@@ -45,6 +49,7 @@ const server = spawn(
       NODE_ENV: "production",
       NEXT_TELEMETRY_DISABLED: "1",
       JOBFRAY_PUBLIC_ORIGIN: configuredOrigin,
+      JOBFRAY_EDGE_SECRET: ingressTestSecret,
     },
     stdio: ["ignore", "pipe", "pipe"],
   },
@@ -72,6 +77,11 @@ try {
     await new Promise((done) => setTimeout(done, 250));
   }
   assert.ok(ready, "Local server ready");
+  for(const path of ["/", "/api/core", "/api/worker", "/api/stripe/webhook", "/media/private", "/_next/static/nonexistent.js"]){
+    assert.equal((await originalFetch(origin+path,{redirect:"manual"})).status,403,"direct origin blocked: "+path);
+    assert.equal((await originalFetch(origin+path,{redirect:"manual",headers:{"x-jf-edge-secret":"forged", "x-jf-client-ip":"127.0.0.1", "x-forwarded-for":"203.0.113.55"}})).status,403,"spoofed ingress blocked: "+path);
+  }
+  assert.equal((await originalFetch(origin+"/api/health")).status,200,"public read-only health remains available");
   const titles = new Set();
   for (const route of ["/", "/find", "/for-businesses", "/how-it-works", "/login", "/register", "/terms"]) {
     const r = await fetch(origin + route);

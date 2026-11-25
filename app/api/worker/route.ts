@@ -10,6 +10,10 @@ export async function POST(request: Request) {
         const app = await runtime();
         if (app.sandbox)
             requireSandbox(request);
+        if (request.headers.get("x-jobfray-worker-mode") === "read_only" || process.env.JOBFRAY_CHECKOUT_ENABLED !== "1") {
+            const counts = await app.repo.transaction([], async tx => ({ pendingOperations: await tx.count("operations", { state: "PENDING" }), pendingRefunds: await tx.count("refunds", { state: "REQUIRED" }) }));
+            return response({ mode: "read_only", authenticated: true, financialOperationsExecuted: false, mutationsExecuted: false, counts, commit: process.env.RENDER_GIT_COMMIT ?? null });
+        }
         const providers = app.paymentOperations ? await app.paymentOperations.run(new Date()) : null;
         const expired = await app.booking.reconcile(new Date());
         const retention = await cleanup(app.repo, new Date());

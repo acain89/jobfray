@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
 import net from "node:net";
+
+const ingressTestSecret="synthetic-http-ingress-secret-".repeat(3);
+const originalFetch=globalThis.fetch;
+const fetch=(url,init={})=>{const headers=new Headers(init.headers);headers.set("x-jf-edge-secret",ingressTestSecret);headers.set("x-jf-client-ip","203.0.113.55");return originalFetch(url,{...init,headers});};
 const clean=Object.fromEntries(Object.entries(process.env).filter(([k])=>["PATH","SYSTEMROOT","WINDIR","COMSPEC","PATHEXT","TEMP","TMP","USERPROFILE","APPDATA","LOCALAPPDATA"].includes(k.toUpperCase())));
 const probe=net.createServer();await new Promise(r=>probe.listen(0,"127.0.0.1",r));const port=probe.address().port;await new Promise(r=>probe.close(r));const origin="http://127.0.0.1:"+port;
-const server=spawn(process.execPath,["--import","./scripts/verification-network-guard.mjs","node_modules/next/dist/bin/next","start","--hostname","127.0.0.1","--port",String(port)],{env:{...clean,JOBFRAY_PUBLIC_ORIGIN:origin,NEXT_TELEMETRY_DISABLED:"1"},stdio:"ignore"});
+const server=spawn(process.execPath,["--import","./scripts/verification-network-guard.mjs","node_modules/next/dist/bin/next","start","--hostname","127.0.0.1","--port",String(port)],{env:{...clean,JOBFRAY_PUBLIC_ORIGIN:origin,JOBFRAY_EDGE_SECRET:ingressTestSecret,NEXT_TELEMETRY_DISABLED:"1"},stdio:"ignore"});
 try{
  for(let i=0;i<80;i++){try{if((await fetch(origin+"/api/health")).ok)break;}catch{}await new Promise(r=>setTimeout(r,150));}
  assert.equal((await fetch(origin+"/api/ready")).status,503);
