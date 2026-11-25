@@ -1,6 +1,6 @@
 # Private owner preview
 
-Open **https://jobfray.com/__jobfray/preview** in Safari or Chrome on the phone. Enter the separately delivered private preview access key and select **Unlock preview for 16 hours**. No extension, custom header, VPN or new service account is required. Keep the key private; it is unrelated to Stripe, Render, worker scheduling and JobFray account passwords.
+Open **https://jobfray.com/__jobfray/preview** in Safari or Chrome on the phone. Enter the separately delivered private preview access key and select **Unlock preview for 16 hours**. No extension, custom header, VPN or new service account is required. Paste the preview key rather than a saved JobFray account password. Surrounding pasted spaces are ignored. Keep the key private; it is unrelated to Stripe, Render, worker scheduling and JobFray account passwords.
 
 The preview session is an apex-host-only `__Host-` cookie with `Secure`, `HttpOnly`, `SameSite=Lax`, an sixteen-hour absolute expiry and an HMAC signature. The random 256-bit access key is a dedicated Cloudflare Worker secret. It is submitted only in an HTTPS POST body, never a link or query string. The preview cookie is removed before forwarding to Render. Responses remain private/no-store and noindex. Worker secret storage is described in [Cloudflare's official documentation](https://developers.cloudflare.com/workers/configuration/secrets/).
 
