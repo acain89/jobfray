@@ -43,6 +43,13 @@ export function createWorker(originFetch = fetch) {
             }
             // Default is closed. Only a later reviewed cutover may enable forwarding.
             const operator = await operatorRequest(request, env);
+            // Scheduled fetches can re-enter this route without an incoming
+            // zone request context. Permit only the authenticated read-only
+            // worker endpoint independently of the temporary operator channel.
+            const scheduled = env.SCHEDULER_ENABLED === '1'
+                && request.method === 'POST' && url.pathname === '/api/worker'
+                && request.headers.get('x-jobfray-worker-mode') === 'read_only'
+                && await operatorRequest(request, { ...env, ACCEPTANCE_ENABLED: '1' });
             if (operator && url.pathname === '/__jobfray/origin-denial' && request.method === 'GET') {
                 const outcomes = [];
                 for (const pathname of ['/', '/api/core', '/api/worker', '/api/stripe/webhook', '/media/private', '/_next/static/nonexistent.js']) {
@@ -55,7 +62,7 @@ export function createWorker(originFetch = fetch) {
                 return privateResponse(JSON.stringify({ outcomes }), 200);
             }
             if (operator && url.pathname === '/__jobfray/scheduler-check' && request.method === 'POST') return privateResponse(JSON.stringify(await runScheduler(env)), 200);
-            if (env.ROUTING_MODE !== 'live' && !operator) return privateResponse('JobFray is preparing its new application. Please check back soon.', 503, { 'retry-after': '300', 'x-jobfray-stage': 'maintenance' });
+            if (env.ROUTING_MODE !== 'live' && !operator && !scheduled) return privateResponse('JobFray is preparing its new application. Please check back soon.', 503, { 'retry-after': '300', 'x-jobfray-stage': 'maintenance' });
             if (typeof env.JOBFRAY_EDGE_SECRET !== 'string' || env.JOBFRAY_EDGE_SECRET.length < 32) return privateResponse('Service unavailable', 503);
             // Cloudflare overwrites CF-Connecting-IP on inbound Internet requests.
             // The cf metadata requirement prevents this handler accepting arbitrary
@@ -70,6 +77,7 @@ export function createWorker(originFetch = fetch) {
             headers.set('x-forwarded-host', host);
             headers.set('x-forwarded-proto', 'https');
             headers.set('x-forwarded-for', clientIP);
+            if (scheduled) headers.set('x-jobfray-worker-mode', 'read_only');
             // Forward the original stream: do not parse, reserialize, decompress,
             // stringify or clone JSON. Stripe signatures bind the exact bytes.
             const outgoing = new Request(request, { headers, redirect: 'manual' });

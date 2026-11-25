@@ -25,3 +25,23 @@ test("one-minute scheduled handler requests read-only authenticated work and nev
     await worker.scheduled({}, { SCHEDULER_ENABLED: "0", JOBFRAY_WORKER_KEY: key, JOBFRAY_EDGE_SECRET: key }); assert.equal(calls, 0);
     await worker.scheduled({}, { SCHEDULER_ENABLED: "1", JOBFRAY_WORKER_KEY: key, JOBFRAY_EDGE_SECRET: key }); assert.equal(calls, 1);
 });
+test("closed maintenance operator channel permits only separately authenticated read-only worker requests", async () => {
+    let calls = 0;
+    const worker = createWorker(async (request: Request) => { calls++; assert.equal(request.headers.get("x-jf-client-ip"), "203.0.113.10"); assert.equal(request.headers.get("x-jf-edge-secret"), key); assert.equal(request.headers.get("x-jobfray-worker-mode"), "read_only"); return Response.json({ accepted: true }); });
+    const env = { ACCEPTANCE_ENABLED: "0", SCHEDULER_ENABLED: "1", JOBFRAY_WORKER_KEY: key, JOBFRAY_EDGE_SECRET: key, ROUTING_MODE: "maintenance" };
+    const request = (path = "/api/worker", mode = "read_only", auth = key, method = "POST") => { const value = new Request("https://jobfray.com" + path, { method, headers: { Authorization: "Bearer " + auth, "x-jobfray-worker-mode": mode, "cf-connecting-ip": "203.0.113.10", "x-jf-edge-secret": "forged", "x-jf-client-ip": "127.0.0.1" } }); Object.defineProperty(value, "cf", { value: { colo: "TEST" } }); return value; };
+    for (const bad of [request("/api/core"), request("/api/stripe/webhook"), request("/api/worker", "full"), request("/api/worker", "read_only", "forged"), request("/api/worker", "read_only", key, "GET")]) assert.equal((await worker.fetch(bad, env)).status, 503);
+    assert.equal((await worker.fetch(request(), { ...env, SCHEDULER_ENABLED: "0" })).status, 503);
+    assert.equal((await worker.fetch(request(), env)).status, 200); assert.equal(calls, 1);
+});
+test("scheduled fetch can re-enter maintenance without opening the operator channel", async () => {
+    let calls = 0;
+    const env = { ACCEPTANCE_ENABLED: "0", SCHEDULER_ENABLED: "1", JOBFRAY_WORKER_KEY: key, JOBFRAY_EDGE_SECRET: key, ROUTING_MODE: "maintenance" };
+    const worker = createWorker(async (request: Request): Promise<Response> => {
+        calls++;
+        if (calls === 1) { const incoming = new Request(request); incoming.headers.set("cf-connecting-ip", "203.0.113.10"); Object.defineProperty(incoming, "cf", { value: { colo: "TEST" } }); return worker.fetch(incoming, env); }
+        assert.equal(request.headers.get("x-jobfray-worker-mode"), "read_only"); assert.equal(request.headers.get("authorization"), "Bearer " + key);
+        return Response.json({ mode: "read_only", financialOperationsExecuted: false, mutationsExecuted: false });
+    });
+    await worker.scheduled({}, env); assert.equal(calls, 2);
+});
