@@ -1,4 +1,4 @@
-﻿import { authorizeWorker } from "@/lib/core/worker-auth";
+import { authorizeWorker } from "@/lib/core/worker-auth";
 import { trustedPrincipal } from "@/lib/core/edge";
 import { acceptDatabase } from "@/lib/core/database-acceptance";
 import { response, failure } from "@/lib/core/http";
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
         return response({ ...result, principal, commit: process.env.RENDER_GIT_COMMIT ?? null });
     } catch (error) {
         if (error instanceof AppError) return failure(error);
-        return response({ accepted: false, reason: "database_acceptance_failed", code: typeof error === "object" && error && "code" in error && typeof error.code === "string" && /^P\d{4}$/.test(error.code) ? error.code : "VERIFICATION_FAILED" }, 503);
+        return response({ accepted: false, reason: "database_acceptance_failed", code: typeof error === "object" && error && "code" in error && typeof error.code === "string" && /^P\d{4}$/.test(error.code) ? error.code : "VERIFICATION_FAILED", diagnostic: error instanceof Error && ["Restricted database identity mismatch", "Unsafe database connection override", "Database trust anchor invalid", "Database role or TLS mismatch", "Database catalog mismatch"].includes(error.message) ? error.message : typeof error === "object" && error && "code" in error && ["ENOENT", "ERR_INVALID_URL"].includes(String(error.code)) ? String(error.code) : error instanceof Error ? error.name : "unknown" }, 503);
     }
 }
 export async function GET(request: Request) {
